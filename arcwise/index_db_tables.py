@@ -50,13 +50,14 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
                 fk_info = cursor.fetchall()
                 fk_list = defaultdict(list)
                 for _id, _seq, table, from_col, to_col, _, _, _ in fk_info:
-                    fk_list[from_col].append(
-                        ForeignKey(
-                            reference_table=table,
-                            reference_column=to_col,
-                            relationship="",  # This will be determined later
+                    if from_col and to_col:
+                        fk_list[from_col].append(
+                            ForeignKey(
+                                reference_table=table,
+                                reference_column=to_col,
+                                relationship="",  # This will be determined later
+                            )
                         )
-                    )
 
                 columns = []
                 primary_key = []
