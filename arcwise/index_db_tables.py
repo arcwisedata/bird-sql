@@ -39,20 +39,17 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
 
             for table_name in table_names:
                 table_name = table_name[0]
-
-                # Get table info (columns and their types)
                 escaped_name = table_name.replace('"', '""')
-                cursor.execute(f'PRAGMA table_info("{escaped_name}")')
-                # cid, name, type, notnull, dflt_value, pk
-                columns_info = cursor.fetchall()
 
                 # Get foreign key information
                 cursor.execute(f'PRAGMA foreign_key_list("{escaped_name}")')
                 # id, seq, table, from, to, on_update, on_delete, match
                 fk_info = cursor.fetchall()
                 fk_list = defaultdict(list)
+                seen_fks = set()
                 for _id, _seq, table, from_col, to_col, _, _, _ in fk_info:
-                    if from_col and to_col:
+                    if from_col and to_col and (table, from_col, to_col) not in seen_fks:
+                        seen_fks.add((table, from_col, to_col))
                         fk_list[from_col].append(
                             ForeignKey(
                                 reference_table=table,
@@ -61,9 +58,12 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
                             )
                         )
 
+                # Get column info
+                cursor.execute(f'PRAGMA table_info("{escaped_name}")')
+                # cid, name, type, notnull, dflt_value, pk
+                columns_info = cursor.fetchall()
                 columns = []
                 primary_key = []
-
                 for _cid, col_name, col_type, _notnull, _dflt_value, is_pk in columns_info:
                     columns.append(
                         DatabaseColumn(

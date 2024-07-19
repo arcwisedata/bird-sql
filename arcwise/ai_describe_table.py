@@ -21,7 +21,7 @@ def _trunc(v: Any):
 def _format_column(c: ColumnInfo):
     result = f"# {c.name}"
     if c.null_fraction == 1:
-        return result + "\nAll null"
+        return result + "\nNot useful"
 
     if c.original_name:
         result += f"\nOriginal name: {c.original_name}"
@@ -41,21 +41,19 @@ def _format_column(c: ColumnInfo):
 
 async def generate_table_and_columns_ai_description(table: Table, model: str):
     system_prompt = """You are an expert, detail-oriented, data analyst.
-
 Your task is to call `describe_table` with high-quality descriptions based on user-provided tables.
-Do not respond with anything else.
 
 For each column, provide as concise of a description as you can given the following constraints:
 - Omit the description if the column name is self-explanatory.
-- If a column are the same as a previous column (and its `sample_values` are of the same format), its description should be 'See [previous column]'.
-- IMPORTANT: if value_description explains the meanings of certain values, or mentions that the values are not useful, this information MUST be preserved in the final description.
-    - If value_description is inconsistent with sample_values, sample_values takes priority and must be used instead.
+- If a column are the same as a previous column (and its sample values are of the same format), its description should be 'See [previous column]'.
+- IMPORTANT: if "Value description" explains the meanings of certain values, or mentions that the values are not useful, this information MUST be preserved in the final description.
+    - If "Value description" is inconsistent with the sample values, the sample values take priority and must be used instead.
 - If the values appear to follow a consistent format or pattern, describe the pattern.
 - If the values are numerical, describe the range of values.
 - Otherwise, as long as the values are human-readable strings, provide a few sample values. If there are fewer than 5, list them all.
 - Put single quotes around ALL string values.
 
-The ordering of the columns should match their original ordering. Only use information provided in the column JSON.
+The ordering of the columns should match their original ordering. Only use the information provided by the user.
 At the end, provide a table_description (but do not mention the exact row count.)"""
     tool = {
         "type": "function",

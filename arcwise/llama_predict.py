@@ -79,7 +79,7 @@ async def process_question(
             n=N_SAMPLES,
             temperature=1.0,
             custom_llm_provider="openai",
-            timeout=180.0,
+            timeout=300.0,  # Allow for cold start time
             num_retries=3,
         )
         input_column_descriptions = defaultdict(list)

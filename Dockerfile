@@ -1,7 +1,7 @@
 FROM python:3.11-slim-bullseye AS base
 
 RUN apt update && \
-  apt -y install --no-install-recommends --no-install-suggests bash curl make git gcc g++ npm && \
+  apt -y install --no-install-recommends --no-install-suggests bash curl make git gcc g++ sqlite3 && \
   apt clean && \
   rm -rf /var/cache/apt/lists
 
