@@ -36,3 +36,7 @@ agent.log
 report.json
 
 .vscode/
+.env
+mock_dataset/db_metadata.json
+mock_dataset/intermediate_predictions.json
+mock_dataset/predict_mock.json

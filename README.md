@@ -38,7 +38,6 @@ python -m arcwise.llama_predict \
   --questions-file ./mock_dataset/questions.json \
   --output-file ./mock_dataset/intermediate_predictions.json \
   --model llama3-output-input \
-  --output-file llama_predict.json \
   --concurrency 10
 
 # run agent
