@@ -97,7 +97,6 @@ At the end, provide a table_description (but do not mention the exact row count.
         temperature=0.0,
         max_retries=3,
         timeout=120.0,
-        custom_llm_provider="openai",
     )
     descriptions = json.loads(result.choices[0].message.tool_calls[0].function.arguments)  # type: ignore
 

@@ -7,7 +7,7 @@ license = "MIT"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "<4.0,>=3.10"
 pydantic = "^2.8.2"
 sqlglot = "^25.6.0"
 litellm = "^1.41.23"

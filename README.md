@@ -9,8 +9,9 @@ On the mock dataset:
 ```bash
 docker build . -t arcwise-bird
 
-# Use provided OPENAI_API_KEY
-docker run -v ./mock_dataset:/data -e OPENAI_API_KEY=sk-xxxxx arcwise-bird /data/databases /data/questions.json /data/predict_mock.json
+export AZURE_API_KEY=xxxxxxxxx
+docker run --runtime nvidia --gpus all -v $(pwd)/mock_dataset:/data -e AZURE_API_KEY \
+  arcwise-bird /data/databases /data/questions.json /data/predict_mock.json
 
 # Use official evaluation script
 poetry run python -u ./bird_evaluation/src/evaluation.py \
@@ -37,8 +38,8 @@ python -m arcwise.llama_predict \
   --metadata-file ./mock_dataset/db_metadata.json \
   --questions-file ./mock_dataset/questions.json \
   --output-file ./mock_dataset/intermediate_predictions.json \
-  --model llama3-output-input \
-  --concurrency 10
+  --model arcwise/bird-mistral-nemo \
+  --embedding-model azure/text-embedding-3-large
 
 # run agent
 python -m arcwise.agent.main \
@@ -46,5 +47,5 @@ python -m arcwise.agent.main \
   --metadata-file ./mock_dataset/db_metadata.json \
   --questions-file ./mock_dataset/intermediate_predictions.json \
   --output-file ./mock_dataset/predict_mock.json \
-  --concurrency 5
+  --concurrency 4
 ```

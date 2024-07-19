@@ -8,45 +8,49 @@ if [ $# -ne 3 ]; then
     exit 1
 fi
 
-# OPENAI_API_KEY must be defined in the environment
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "OPENAI_API_KEY is required"
+# Azure OpenAI configuration
+if [ -z "$AZURE_API_KEY" ]; then
+    echo "AZURE_API_KEY is required"
     exit 1
 fi
+export AZURE_API_VERSION="2024-06-01"
+export AZURE_API_BASE="https://arcwise-ai-useast2.openai.azure.com"
 
 # Input arguments
 DB_PATH="$1"
 QUESTIONS_FILE="$2"
 OUTPUT_FILE="$3"
-LLAMA_MODEL="llama3-output-input"
-MODEL="gpt-4o"
+
+# Models
+CUSTOM_MODEL="arcwise/bird-mistral-nemo"
+OPENAI_MODEL="azure/gpt-4o"
+EMBED_MODEL="azure/text-embedding-3-large"
 
 # Intermediate outputs
 METADATA_FILE=/data/db_metadata.json
 PREDICTIONS_FILE=/data/intermediate_predictions.json
 
-export OPENAI_API_BASE="https://arcwisedata--litellm-proxy-web.modal.run/v1"
-
 echo "Generating DB schemas and metadata..."
-python -m arcwise.generate_db_metadata \
+python3 -m arcwise.generate_db_metadata \
   --db-path "$DB_PATH" \
   --output-file "$METADATA_FILE" \
-  --model "$MODEL"
+  --model "$OPENAI_MODEL"
 
 echo "Generating column & output predictions..."
-python -m arcwise.llama_predict \
+python3 -m arcwise.llama_predict \
   --questions-file "$QUESTIONS_FILE" \
   --metadata-file "$METADATA_FILE" \
   --output-file "$PREDICTIONS_FILE" \
-  --model "$LLAMA_MODEL" --concurrency 16
+  --model "$CUSTOM_MODEL" \
+  --embedding-model "$EMBED_MODEL"
 
 echo "Running Arcwise agent..."
-python -m arcwise.agent.main \
+python3 -m arcwise.agent.main \
   --db-path "$DB_PATH" \
   --metadata-file "$METADATA_FILE" \
   --questions-file "$PREDICTIONS_FILE" \
-  --model "$MODEL" \
-  --concurrency 10 \
+  --model "$OPENAI_MODEL" \
+  --concurrency 3 \
   --output-file "$OUTPUT_FILE"
 
 chmod a+rw "$OUTPUT_FILE"

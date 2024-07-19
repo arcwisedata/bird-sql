@@ -39,7 +39,7 @@ class Database(BaseModel):
     tables: list[Table]
 
 
-class LlamaPredictions(BaseModel):
+class SchemaPredictions(BaseModel):
     class OutputType(BaseModel):
         type: str
         description: str
@@ -51,6 +51,7 @@ class LlamaPredictions(BaseModel):
 
     output_types: list[OutputType]
     input_columns: list[InputColumn]
+    raw_prediction: str | None = None
 
 
 class BIRDQuestion(BaseModel):
@@ -59,7 +60,7 @@ class BIRDQuestion(BaseModel):
     evidence: str | None = None
     SQL: str | None = None
     question_id: int | None = None
-    llama_predictions: LlamaPredictions | None = None
+    schema_predictions: SchemaPredictions | None = None
     filtered_schema: str | None = None
 
     def question_evidence(self) -> str:

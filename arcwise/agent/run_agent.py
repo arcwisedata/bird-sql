@@ -33,7 +33,7 @@ async def agent_loop(
         # TODO: need to flag this as potentially inaccurate
         user_message += "\nContext: " + question.evidence.strip()
 
-    if predictions := question.llama_predictions:
+    if predictions := question.schema_predictions:
         predicted_columns = ""
         for col in predictions.input_columns:
             predicted_columns += f"- {col.column}\n"
@@ -98,7 +98,9 @@ I need final_answer to have exactly the following column types:
                 arguments = ExecuteSQLToolArguments.model_validate_json(
                     tool_call.function.arguments
                 )
-                logger.info(f"Executing SQL: {arguments.query_description}\n{arguments.sql}")
+                logger.info(
+                    f"Executing SQL: {arguments.query_description}\n{arguments.sql}"
+                )
                 gpt_result, tool_result = await execute_sql_tool(
                     arguments, sql_by_exec_result_id, sql_context
                 )
@@ -149,7 +151,9 @@ async def evaluate_question(
             final_sql = ""
         else:
             predicted_result = final_sql_result.rows
-            ex_match = set(map(tuple, predicted_result)) == set(map(tuple, golden_result))
+            ex_match = set(map(tuple, predicted_result)) == set(
+                map(tuple, golden_result)
+            )
             final_sql = final_sql_result.sql
 
         return (
