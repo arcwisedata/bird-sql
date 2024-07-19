@@ -32,7 +32,9 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
             cursor = conn.cursor()
 
             # Get all table names
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
             table_names = cursor.fetchall()
 
             for table_name in table_names:

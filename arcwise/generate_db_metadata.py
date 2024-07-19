@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from .ai_describe_table import generate_table_and_columns_ai_description
 from .index_db_tables import index_db_tables, DatabaseTable
-from .typedefs import ColumnInfo, Database, Table
+from .typedefs import ColumnInfo, Database, ForeignKey, Table
 from .utils import coro, run_with_concurrency
 
 RELATIONSHIPS = {
@@ -100,21 +100,6 @@ def get_column_stats(
         raise
 
 
-def get_column_types(
-    db_path: str, db_id: str, table_names: list[str]
-) -> dict[str, dict[str, tuple[str, str]]]:
-    sqlite_path = pathlib.Path(db_path) / f"{db_id}/{db_id}.sqlite"
-    result = {}
-    with sqlite3.connect(sqlite_path) as conn:
-        cursor = conn.cursor()
-        for table_name in table_names:
-            # Get the SQLite table schema
-            cursor.execute(f"PRAGMA table_info('{table_name}')")
-            schema = cursor.fetchall()
-            result[table_name] = {col[1].lower(): (col[1], col[2].lower()) for col in schema}
-    return result
-
-
 def get_cleaned_metadata(db_path: str) -> list[Database]:
     print("Listing tables...")
     tables = index_db_tables(db_path)
@@ -124,7 +109,7 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
         futures = [executor.submit(get_column_stats, db_path, table) for table in tables]
         table_column_stats = [f.result() for f in tqdm(futures, desc="Getting column stats")]
 
-    all_column_stats = {}
+    all_columns: dict[tuple[str, str, str], tuple[ColumnInfo, ColumnStatistics, str]] = {}
     tables_by_db_id: dict[str, list[Table]] = defaultdict(list)
     for table, column_stats in zip(tables, table_column_stats):
         db_id = table.db_id
@@ -137,7 +122,6 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
 
         output_columns = []
         for column, stats in zip(table.columns, column_stats):
-            all_column_stats[(db_id, table.name, column.name)] = stats
             col_description = description_by_name.get(column.name.lower())
             description = None
             value_description = None
@@ -155,25 +139,29 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                         (v for v in [value_description, *additional_cols] if v), ""
                     )
 
-            output_columns.append(
-                ColumnInfo(
-                    name=column.name,
-                    original_name=orig_col_name.strip() if orig_col_name else None,
-                    type=column.type,
-                    description=description.strip() if description else None,
-                    value_description=value_description.strip() if value_description else None,
-                    foreign_keys=column.foreign_keys,
-                    null_fraction=stats.null_fraction,
-                    unique_count=int(stats.distinct_count),
-                    unique_fraction=stats.distinct_percent,
-                    sample_values=(stats.most_common_vals or stats.histogram or [])[:10],
-                    min_value=min(
-                        (stats.histogram or []) + (stats.most_common_vals or []), default=None
-                    ),
-                    max_value=max(
-                        (stats.histogram or []) + (stats.most_common_vals or []), default=None
-                    ),
-                )
+            column_info = ColumnInfo(
+                name=column.name,
+                original_name=orig_col_name.strip() if orig_col_name else None,
+                type=column.type,
+                description=description.strip() if description else None,
+                value_description=value_description.strip() if value_description else None,
+                foreign_keys=column.foreign_keys,
+                null_fraction=stats.null_fraction,
+                unique_count=int(stats.distinct_count),
+                unique_fraction=stats.distinct_percent,
+                sample_values=(stats.most_common_vals or stats.histogram or [])[:10],
+                min_value=min(
+                    (stats.histogram or []) + (stats.most_common_vals or []), default=None
+                ),
+                max_value=max(
+                    (stats.histogram or []) + (stats.most_common_vals or []), default=None
+                ),
+            )
+            output_columns.append(column_info)
+            all_columns[(db_id, table.name.lower(), column.name.lower())] = (
+                column_info,
+                stats,
+                table.name,
             )
 
         tables_by_db_id[table.db_id].append(
@@ -192,9 +180,11 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
         for table in tables:
             for column in table.columns:
                 for fkey in column.foreign_keys:
-                    from_col_stats = all_column_stats[(db_id, table.name, column.name)]
-                    to_col_stats = all_column_stats[
-                        (db_id, fkey.reference_table, fkey.reference_column)
+                    _, from_col_stats, _ = all_columns[
+                        (db_id, table.name.lower(), column.name.lower())
+                    ]
+                    to_col, to_col_stats, to_col_table = all_columns[
+                        (db_id, fkey.reference_table.lower(), fkey.reference_column.lower())
                     ]
                     from_unique = approx_eq(
                         from_col_stats.distinct_percent + from_col_stats.null_fraction, 1
@@ -202,7 +192,19 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                     to_unique = approx_eq(
                         to_col_stats.distinct_percent + to_col_stats.null_fraction, 1
                     )
+                    # names may have been lowercased
+                    fkey.reference_table = to_col_table
+                    fkey.reference_column = to_col.name
                     fkey.relationship = RELATIONSHIPS[(from_unique, to_unique)]
+
+                    # SQLite only lists foreign keys in one direction, so add the reverse
+                    to_col.foreign_keys.append(
+                        ForeignKey(
+                            reference_table=table.name,
+                            reference_column=column.name,
+                            relationship=RELATIONSHIPS[(to_unique, from_unique)],
+                        )
+                    )
 
     return databases_list
 
