@@ -1,0 +1,130 @@
+import json
+import re
+from typing import Any
+
+import litellm
+
+from .ddl import quote_identifier
+from .typedefs import ColumnInfo, Table
+
+
+def _normalize_for_json(name: str):
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name)
+
+
+def _trunc(v: Any):
+    if isinstance(v, str) and len(v) > 100:
+        return v[:100] + "…"
+    return v
+
+
+def _format_column(c: ColumnInfo):
+    result = f"# {c.name}"
+    if c.null_fraction == 1:
+        return result + "\nAll null"
+
+    if c.original_name:
+        result += f"\nOriginal name: {c.original_name}"
+    if c.description:
+        desc = c.description.replace("\n", "\t\n")
+        result += f"\nOriginal description: {desc}"
+    if c.value_description:
+        desc = c.value_description.replace("\n", "\t\n")
+        result += f"\nValue description: {desc}"
+    if c.sample_values:
+        result += f"\nSample values ({c.unique_count} unique): " + ", ".join(
+            [repr(_trunc(v)) for v in c.sample_values]
+        )
+    result += f"\nRange: {repr(c.min_value)} to {repr(c.max_value)}"
+    return result
+
+
+async def generate_table_and_columns_ai_description(table: Table, model: str):
+    system_prompt = """You are an expert, detail-oriented, data analyst.
+
+Your task is to call `describe_table` with high-quality descriptions based on user-provided tables.
+Do not respond with anything else.
+
+For each column, provide as concise of a description as you can given the following constraints:
+- Omit the description if the column name is self-explanatory.
+- If a column are the same as a previous column (and its `sample_values` are of the same format), its description should be 'See [previous column]'.
+- IMPORTANT: if value_description explains the meanings of certain values, or mentions that the values are not useful, this information MUST be preserved in the final description.
+    - If value_description is inconsistent with sample_values, sample_values takes priority and must be used instead.
+- If the values appear to follow a consistent format or pattern, describe the pattern.
+- If the values are numerical, describe the range of values.
+- Otherwise, as long as the values are human-readable strings, provide a few sample values. If there are fewer than 5, list them all.
+- Put single quotes around ALL string values.
+
+The ordering of the columns should match their original ordering. Only use information provided in the column JSON.
+At the end, provide a table_description (but do not mention the exact row count.)"""
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "describe_table",
+            "description": "See instructions",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    **{
+                        _normalize_for_json(c.name) + "-description": {
+                            "type": "string",
+                            "description": f"Description for column {c.name}",
+                        }
+                        for c in table.columns
+                    },
+                    "table_description": {
+                        "type": "string",
+                        "description": "Brief 1-line table description",
+                    },
+                },
+                "additionalProperties": False,
+                "required": [_normalize_for_json(c.name) + ".description" for c in table.columns]
+                + ["table_description"],
+            },
+        },
+    }
+    column_data = "\n".join([_format_column(c) for c in table.columns])
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": f'Describe this SQLite table named "{table.name}" with {table.row_count} rows and the following columns:\n\n{column_data}',
+        },
+    ]
+    result = await litellm.acompletion(
+        model=model,
+        messages=messages,
+        tools=[tool],
+        tool_choice={"type": "function", "function": {"name": "describe_table"}},  # type: ignore
+        temperature=0.0,
+        max_retries=3,
+        timeout=120.0,
+        custom_llm_provider="openai",
+    )
+    descriptions = json.loads(result.choices[0].message.tool_calls[0].function.arguments)  # type: ignore
+
+    table_description: str = descriptions.get("table_description", "")
+    if table_description:
+        table_description += "\n"
+    table_description += f"{table.row_count} rows"
+    if table.primary_key:
+        table_description += f", primary key: ({', '.join(table.primary_key)})"
+    table.ai_description = table_description
+
+    for column in table.columns:
+        ai_description = descriptions.get(_normalize_for_json(column.name) + "-description") or ""
+        if ai_description:
+            ai_description += "\n"
+        ai_description += (
+            f"Stats: {column.null_fraction*100:.3g}% null {column.unique_fraction*100:.3g}% unique"
+        )
+        if column.foreign_keys:
+            if ai_description:
+                ai_description += "\n"
+            ai_description += "Foreign keys: " + ", ".join(
+                [
+                    f"{quote_identifier(fk.reference_table)}.{quote_identifier(fk.reference_column)} ({fk.relationship})"
+                    for fk in column.foreign_keys
+                ]
+            )
+        column.ai_description = ai_description

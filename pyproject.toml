@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "bird-arcwise"
+version = "0.0.0"
+description = "BIRD-SQL submission"
+authors = ["Arcwise Team <arcwise-team@arcwise.app>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.8.2"
+sqlglot = "^25.6.0"
+litellm = "^1.41.23"
+python-dotenv = "^1.0.1"
+tqdm = "^4.66.4"
+click = "^8.1.7"
+pandas = "1.5.3"
+fastapi = "^0.111.0"
+numpy = "^1.21.2"
+aioboto3 = "^12.3.0"
+func-timeout = "^4.3.5"
+
+[tool.poetry.group.retrieval]
+optional = true
+
+[tool.poetry.group.retrieval.dependencies]
+llama-index-core = "^0.10.55"
+llama-index-embeddings-bedrock = "^0.2.1"
+llama-index-embeddings-gemini = "^0.1.8"
+llama-index-embeddings-openai = "^0.1.10"
+llama-index-embeddings-voyageai = "^0.1.4"
+llama-index-vector-stores-duckdb = "^0.1.5"
+transformers = "^4.42.4"
+
+
+[tool.ruff]
+line-length = 100
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
