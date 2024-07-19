@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import click
 import json
+import os
 import pathlib
 import sqlite3
 from collections import defaultdict
@@ -268,6 +269,7 @@ async def main(db_path: str, output_file: str, model: str, concurrency: int, ai_
     else:
         output_databases = get_cleaned_metadata(db_path)
         # Save initial metadata (without AI descriptions)
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         with open(output_file, "w") as f:
             f.write(json.dumps(jsonable_encoder(output_databases), indent=2))
 

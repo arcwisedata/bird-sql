@@ -35,7 +35,7 @@ def _format_column(c: ColumnInfo):
         result += f"\nSample values ({c.unique_count} unique): " + ", ".join(
             [repr(_trunc(v)) for v in c.sample_values]
         )
-    result += f"\nRange: {repr(c.min_value)} to {repr(c.max_value)}"
+    result += f"\nRange: {repr(_trunc(c.min_value))} to {repr(_trunc(c.max_value))}"
     return result
 
 
@@ -43,14 +43,14 @@ async def generate_table_and_columns_ai_description(table: Table, model: str):
     system_prompt = """You are an expert, detail-oriented, data analyst.
 Your task is to call `describe_table` with high-quality descriptions based on user-provided tables.
 
-For each column, provide as concise of a description as you can given the following constraints:
-- Omit the description if the column name is self-explanatory.
-- If a column are the same as a previous column (and its sample values are of the same format), its description should be 'See [previous column]'.
+For each column, provide as concise and informative of a description as you can given the following constraints:
+- Omit the description if the column name makes it completely obvious.
+- If a column is the same as a previous column (and its sample values are of the same format), its description should be 'See [previous column]'.
 - IMPORTANT: if "Value description" explains the meanings of certain values, or mentions that the values are not useful, this information MUST be preserved in the final description.
     - If "Value description" is inconsistent with the sample values, the sample values take priority and must be used instead.
-- If the values appear to follow a consistent format or pattern, describe the pattern.
+- If the values appear to follow a consistent format or pattern, describe the format or pattern. e.g. if the values are '<html>...</html>', describe them simply as HTML values without providing sample values.
 - If the values are numerical, describe the range of values.
-- Otherwise, as long as the values are human-readable strings, provide a few sample values. If there are fewer than 5, list them all.
+- Otherwise, as long as the values are human-readable strings, provide a few sample values. If there are fewer than 5, list them all. NEVER include sample values that have been truncated and end with '…'.
 - Put single quotes around ALL string values.
 
 The ordering of the columns should match their original ordering. Only use the information provided by the user.

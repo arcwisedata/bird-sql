@@ -18,7 +18,6 @@ fi
 DB_PATH="$1"
 QUESTIONS_FILE="$2"
 OUTPUT_FILE="$3"
-DESCRIBE_MODEL="claude-3.5-sonnet"
 LLAMA_MODEL="llama3-output-input"
 MODEL="gpt-4o"
 
@@ -32,7 +31,7 @@ echo "Generating DB schemas and metadata..."
 python -m arcwise.generate_db_metadata \
   --db-path "$DB_PATH" \
   --output-file "$METADATA_FILE" \
-  --model "$DESCRIBE_MODEL"
+  --model "$MODEL"
 
 echo "Generating column & output predictions..."
 python -m arcwise.llama_predict \
