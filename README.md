@@ -10,7 +10,6 @@ On the mock dataset:
 docker build . -t arcwise-bird
 
 # Use provided OPENAI_API_KEY
-DB_PATH=/data/databases
 docker run -v ./mock_dataset:/data -e OPENAI_API_KEY=sk-xxxxx arcwise-bird /data/databases /data/questions.json /data/predict_mock.json
 
 # Use official evaluation script

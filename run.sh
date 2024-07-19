@@ -39,7 +39,7 @@ python -m arcwise.llama_predict \
   --questions-file "$QUESTIONS_FILE" \
   --metadata-file "$METADATA_FILE" \
   --output-file "$PREDICTIONS_FILE" \
-  --model "$LLAMA_MODEL" --concurrency 10
+  --model "$LLAMA_MODEL" --concurrency 16
 
 echo "Running Arcwise agent..."
 python -m arcwise.agent.main \

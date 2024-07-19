@@ -1,5 +1,4 @@
 import logging
-import traceback
 
 import litellm
 from dotenv import load_dotenv
@@ -37,14 +36,11 @@ async def agent_loop(
     if predictions := question.llama_predictions:
         predicted_columns = ""
         for col in predictions.input_columns:
-            if not col.votes or col.votes >= 3:
-                predicted_columns += f"- {col.column}"
-                predicted_columns += "\n"
+            predicted_columns += f"- {col.column}\n"
 
         user_message += f"""
 Hint: The following columns are most relevant to the question:
 {predicted_columns}
-
 When you have the final answer, run `execute_sql` with a `query_identifier` of "final_answer" with all information in one single query."""
 
         predicted_outputs = ""
@@ -145,10 +141,9 @@ async def evaluate_question(
         except Exception:
             print(f"Error: golden SQL failed: {question.SQL}")
             print(f"{question.db_id}: {question.question}")
-            traceback.print_exc()
             golden_result = []
 
-        if not final_sql_result.rows or not final_sql_result.sql:
+        if final_sql_result.rows is None or not final_sql_result.sql:
             predicted_result = final_sql_result.error or "Unknown error"
             ex_match = False
             final_sql = ""

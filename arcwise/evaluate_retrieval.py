@@ -185,9 +185,9 @@ async def _process_question(
     question_fields = f"{question.db_id}\t{question.question_id}\t{q_clean}\t{question.SQL}"
 
     try:
-        cache_key = embed_model.model_name + ":" + q
+        cache_key = embed_model.model_name + "_text:" + q
         if not (embedding := cache.get(cache_key)):
-            embedding = await embed_model.aget_query_embedding(q)
+            embedding = await embed_model.aget_text_embedding(q)
             cache[cache_key] = embedding
         retrieved = await asyncio.to_thread(
             lambda: store.query(VectorStoreQuery(query_embedding=embedding, similarity_top_k=9999))

@@ -194,7 +194,7 @@ def _check_tables_used_for_division(node: exp.Div, sg_query: exp.Query):
 
     numerator_tables = _find_tables_used(node.left, ctes_to_tables, root_tables)
     denominator_tables = _find_tables_used(node.right, ctes_to_tables, root_tables)
-    if numerator_tables != denominator_tables:
+    if numerator_tables and denominator_tables and numerator_tables != denominator_tables:
         raise RuntimeError(f"""
 Division `{node.sql()}` is operating on different units.
 The numerator and denominator must be derived from the same set of tables, e.g.

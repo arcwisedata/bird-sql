@@ -61,3 +61,9 @@ class BIRDQuestion(BaseModel):
     question_id: int | None = None
     llama_predictions: LlamaPredictions | None = None
     filtered_schema: str | None = None
+
+    def question_evidence(self) -> str:
+        res = self.question.strip()
+        if self.evidence:
+            res += f"\nContext: {self.evidence.strip()}"
+        return res

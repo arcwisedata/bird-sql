@@ -185,6 +185,10 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
         for table in tables:
             for column in table.columns:
                 for fkey in column.foreign_keys:
+                    if fkey.relationship:
+                        # This was inserted from the other direction!
+                        continue
+
                     _, from_col_stats, _ = all_columns[
                         (db_id, table.name.lower(), column.name.lower())
                     ]
