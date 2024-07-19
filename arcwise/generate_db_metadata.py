@@ -24,6 +24,7 @@ RELATIONSHIPS = {
     (False, True): "many-to-one",
     (False, False): "many-to-many",
 }
+TABLE_DESCRIPTION_CSV_COLUMNS = ["original_column_name", "column_name", "column_description", "data_format", "value_description"]
 
 
 @dataclass
@@ -135,9 +136,13 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                 else:
                     expected_cols, additional_cols = col_description[:5], col_description[5:]
                     _, orig_col_name, description, _type, value_description = expected_cols
-                    value_description = next(
-                        (v for v in [value_description, *additional_cols] if v), ""
-                    )
+                    additional_info = [str_i for i in additional_cols if (str_i := str(i)) and not isinstance(i, int)]
+                    if additional_info:
+                        additional_info = f"Some included information which may or may not be relevant:\n" + "\n".join(additional_info)
+                    if value_description and additional_info:
+                        value_description += "\n" + additional_info
+                    elif additional_info:
+                        value_description = additional_info
 
             column_info = ColumnInfo(
                 name=column.name,
@@ -228,16 +233,8 @@ def read_table_description(
     if descriptions is None:
         print(f"Warning: could not read description file {full_path}")
         return None
-    # select only a specific set of columns
-    descriptions = descriptions[
-        [
-            "original_column_name",
-            "column_name",
-            "column_description",
-            "data_format",
-            "value_description",
-        ]
-    ]
+    extra_columns = list(set(descriptions.columns) - set(TABLE_DESCRIPTION_CSV_COLUMNS))
+    descriptions = descriptions[TABLE_DESCRIPTION_CSV_COLUMNS + extra_columns]
     descriptions.fillna("", inplace=True)
     return descriptions
 

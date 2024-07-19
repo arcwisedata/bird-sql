@@ -47,12 +47,18 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
                 fk_info = cursor.fetchall()
                 fk_list = defaultdict(list)
                 seen_fks = set()
-                for _id, _seq, table, from_col, to_col, _, _, _ in fk_info:
-                    if from_col and to_col and (table, from_col, to_col) not in seen_fks:
-                        seen_fks.add((table, from_col, to_col))
+                for _id, _seq, reference_table, from_col, to_col, _, _, _ in fk_info:
+                    reference_table_name: str = next(
+                        (name for row in table_names if (name := row[0]) and name.lower() == reference_table.lower()),
+                        None
+                    )
+                    if reference_table_name is None:
+                        continue
+                    if from_col and to_col and (reference_table_name, from_col, to_col) not in seen_fks:
+                        seen_fks.add((reference_table_name, from_col, to_col))
                         fk_list[from_col].append(
                             ForeignKey(
-                                reference_table=table,
+                                reference_table=reference_table_name,
                                 reference_column=to_col,
                                 relationship="",  # This will be determined later
                             )
@@ -68,7 +74,7 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
                     columns.append(
                         DatabaseColumn(
                             name=col_name,
-                            type=col_type,
+                            type=col_type.lower(),
                             foreign_keys=fk_list[col_name],
                         )
                     )
