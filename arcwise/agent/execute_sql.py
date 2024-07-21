@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import re
+import sqlite3
 from io import StringIO
 
 import sqlglot
@@ -8,6 +9,7 @@ import sqlglot.expressions as exp
 from pydantic import BaseModel, Field
 
 from .utils import SQLContext
+from ..typedefs import BIRDQuestion, SchemaPredictions
 
 SQLScalar = str | int | float | bool | None
 
@@ -45,6 +47,8 @@ async def execute_sql_tool(
     arguments: ExecuteSQLToolArguments,
     previous_sql_queries: dict[str, str],
     sql_context: SQLContext,
+    question: BIRDQuestion,
+    predicted_output_types: list[SchemaPredictions.OutputType] | None
 ) -> tuple[str, ExecuteSQLToolResult]:
     exec_result_id = _get_unique_str(
         re.sub("[^A-Za-z0-9_]", "_", arguments.query_identifier).lower(),
@@ -67,17 +71,19 @@ async def execute_sql_tool(
                 )
 
     sql = sg_query.sql(dialect=sql_context.dialect)
-    if (
-        arguments.query_identifier.startswith("final_answer")
-        and arguments.table_identifiers
-        and (division_nodes := [node for node in sg_query.find_all(exp.Div)])
-    ):
-        # Do some sanity checks on the final query
-        for division_node in division_nodes:
-            _check_tables_used_for_division(division_node, sg_query)
-
+    if arguments.query_identifier.startswith("final_answer"):
+        # Do some sanity checks before executing the final query
+        _check_rounding(question, sql)
+        if (arguments.table_identifiers):
+            for division_node in sg_query.find_all(exp.Div):
+                _check_tables_used_for_division(division_node, sg_query)
+            
     try:
         columns, rows = await execute_sql(sql, sql_context)
+
+        # Ensure that the output types match the expected types
+        if arguments.query_identifier.startswith("final_answer") and predicted_output_types is not None:
+            _check_output_types(columns, rows, predicted_output_types)
         tool_result = ExecuteSQLToolResult(
             exec_result_id=exec_result_id,
             rows=rows,
@@ -147,21 +153,13 @@ async def execute_sql(
 async def _execute_sqlite(sql: str, sql_context: SQLContext) -> list[list[str]]:
     process = None
     try:
-        process = await asyncio.create_subprocess_exec(
-            "sqlite3",
-            "-csv",
-            "-header",
-            sql_context.db_url,
-            sql,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        if process.returncode != 0:
-            raise RuntimeError(f"SQLite error: {stderr.decode()}")
-
-        return list(csv.reader(StringIO(stdout.decode()), delimiter=","))
+        conn = sqlite3.connect(sql_context.db_url)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        columns = [col[0] for col in cursor.description]
+        rows = cursor.fetchall()
+        return [columns] + [[row[col] for col in columns] for row in rows]
     except asyncio.CancelledError:
         if process:
             process.terminate()
@@ -175,6 +173,17 @@ def _lint_sql(node: exp.Expression) -> exp.Expression:
             node.args["nulls_first"] = False
 
     return node
+
+
+def _check_rounding(question: BIRDQuestion, sql: str):
+    full_question = f"{question.question}{' ' + question.evidence if question.evidence else ''}".lower()
+    round_in_query = "round(" in sql.lower()
+    question_references_rounding = "decimal place" in full_question or "round(" in full_question
+
+    if question_references_rounding and not round_in_query:
+        raise RuntimeError("Please ROUND your answer(s) to the appropriate number of decimal places.")
+    elif round_in_query and not question_references_rounding:
+        raise RuntimeError("Answers should not be rounded unless the question asks for it.")
 
 
 # If a division mixes column references from two CTEs (or a CTE and the query itself),
@@ -214,6 +223,35 @@ INNER JOIN table2 AS t2 ON t1.id = t2.id
 
 Please rework the query and try again.
 """)
+    
+def _check_output_types(
+    columns: list[str],
+    rows: list[list[SQLScalar]],
+    predicted_output_types: list[SchemaPredictions.OutputType],
+):
+    if len(rows) == 0:
+        return
+
+    if len(columns) != len(predicted_output_types):
+        raise RuntimeError(
+            f"Expected {len(predicted_output_types)} columns, got {len(columns)}"
+        )
+
+    # check whether the types match in the first row
+    for val, pred in zip(rows[0], predicted_output_types):
+        if val is None:
+            # None values can be anything
+            continue
+        elif pred.type in {"text", "date", "datetime"} and isinstance(val, str):
+            continue
+        elif pred.type == "integer" and isinstance(val, int):
+            continue
+        elif pred.type == "real" and isinstance(val, float):
+            continue
+        else:
+            raise RuntimeError(
+                f"Expected output column type(s): {', '.join(output_type.type for output_type in predicted_output_types)}"
+            )
 
 
 # Find all table names used in column "scopes" for a given node

@@ -15,6 +15,8 @@ from .execute_sql import (
 )
 from .prompts import SYSTEM_PROMPT
 from .utils import ChatCompletionMessageParam, EvaluationResult, SQLContext
+from ..utils import truncate_val
+from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionUserMessageParam
 
 load_dotenv()
 
@@ -29,19 +31,29 @@ async def agent_loop(
     sql_context: SQLContext,
 ) -> tuple[list[ChatCompletionMessageParam], ExecuteSQLToolResult]:
     user_message = question.question.strip()
+    db_metadata = sql_context.db_metadata[question.db_id]
     if question.evidence:
         # TODO: need to flag this as potentially inaccurate
         user_message += "\nContext: " + question.evidence.strip()
 
     if predictions := question.schema_predictions:
         predicted_columns = ""
-        for col in predictions.input_columns:
-            predicted_columns += f"- {col.column}\n"
+        for col in predictions.input_columns:         
+            predicted_columns += f"- {col.column}"
+            table_name, col_name = col.column.split(".")
+            table_metadata = next((t for t in db_metadata.tables if t.name == table_name), None)
+            if table_metadata is not None:
+                col_metadata = next((c for c in table_metadata.columns if c.name == col_name), None)
+                if col_metadata is not None:
+                    samples = [f"'{truncate_val(sv)}'" if isinstance(sv, str) else str(sv) for sv in col_metadata.sample_values]
+                    predicted_columns += f" (sample values: {', '.join(samples)}, ...)"
+                    
+            predicted_columns += "\n"
 
         user_message += f"""
 Hint: The following columns are most relevant to the question:
 {predicted_columns}
-When you have the final answer, run `execute_sql` with a `query_identifier` of "final_answer" with all information in one single query."""
+When you have the final answer, you MUST conclude by running `execute_sql` with a `query_identifier` of "final_answer" with all information in one single query."""
 
         predicted_outputs = ""
         for i, col in enumerate(predictions.output_types):
@@ -58,7 +70,7 @@ I need final_answer to have exactly the following column types:
             + "\n\n"
             + (
                 question.filtered_schema
-                or get_database_ddl(sql_context.db_metadata[question.db_id])
+                or get_database_ddl(db_metadata)
             ),
         },
         {"role": "user", "content": user_message},
@@ -90,10 +102,20 @@ I need final_answer to have exactly the following column types:
         message_log.append(message.model_dump())  # type: ignore
 
         if not (tool_calls := getattr(message, "tool_calls", None)):
-            # Agent is finished
-            break
+            last_tool_call_json = next((tcs[0] for message in message_log[-1:0:-1] if (tcs := message.get("tool_calls"))), None)
+            final_answer_tool_call_user_message: ChatCompletionMessageParam = {"role": "user", "content": "Please provide the requested final_answer as the last tool call."}
+            if last_tool_call_json is None:
+                message_log.append(final_answer_tool_call_user_message)
+            else:
+                last_tool_call = ChatCompletionMessageToolCall.model_validate(last_tool_call_json)
+                last_execute_sql_tool_call = ExecuteSQLToolArguments.model_validate_json(last_tool_call.function.arguments)
+                if last_execute_sql_tool_call.query_identifier.startswith("final_answer"):
+                    # Agent is finished and the last tool call does indeed have a "final answer"
+                    break
+                else:
+                    message_log.append(final_answer_tool_call_user_message)
 
-        for tool_call in tool_calls:
+        for tool_call in tool_calls or []:
             try:
                 arguments = ExecuteSQLToolArguments.model_validate_json(
                     tool_call.function.arguments
@@ -102,7 +124,7 @@ I need final_answer to have exactly the following column types:
                     f"Executing SQL: {arguments.query_description}\n{arguments.sql}"
                 )
                 gpt_result, tool_result = await execute_sql_tool(
-                    arguments, sql_by_exec_result_id, sql_context
+                    arguments, sql_by_exec_result_id, sql_context, question, predictions.output_types if predictions else None
                 )
                 logger.info(f"SQL result {gpt_result}")
                 if tool_result.exec_result_id and tool_result.sql:

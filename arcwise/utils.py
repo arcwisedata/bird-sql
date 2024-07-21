@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import AsyncGenerator, Awaitable, Callable, Sequence, TypeVar
+from typing import Any, AsyncGenerator, Awaitable, Callable, Sequence, TypeVar
 
 
 from .typedefs import Database, BIRDQuestion
@@ -12,6 +12,12 @@ def coro(f):  # type: ignore
         return asyncio.run(f(*args, **kwargs))
 
     return wrapper
+
+
+def truncate_val(v: Any):
+    if isinstance(v, str) and len(v) > 100:
+        return v[:100] + "…"
+    return v
 
 
 T = TypeVar("T")

@@ -6,16 +6,11 @@ import litellm
 
 from .ddl import quote_identifier
 from .typedefs import ColumnInfo, Table
+from .utils import truncate_val
 
 
 def _normalize_for_json(name: str):
     return re.sub(r"[^a-zA-Z0-9_]", "_", name)
-
-
-def _trunc(v: Any):
-    if isinstance(v, str) and len(v) > 100:
-        return v[:100] + "…"
-    return v
 
 
 def _format_column(c: ColumnInfo):
@@ -33,9 +28,9 @@ def _format_column(c: ColumnInfo):
         result += f"\nValue description: {desc}"
     if c.sample_values:
         result += f"\nSample values ({c.unique_count} unique): " + ", ".join(
-            [repr(_trunc(v)) for v in c.sample_values]
+            [repr(truncate_val(v)) for v in c.sample_values]
         )
-    result += f"\nRange: {repr(_trunc(c.min_value))} to {repr(_trunc(c.max_value))}"
+    result += f"\nRange: {repr(truncate_val(c.min_value))} to {repr(truncate_val(c.max_value))}"
     return result
 
 
