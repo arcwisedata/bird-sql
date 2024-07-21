@@ -27,8 +27,7 @@ service_account.json
 *venv/
 
 # Files here are massive - each should copy them in manually
-**/dev_databases/**
-**/train_databases/**
+**/*_databases/**
 retrieval_storage
 
 # Default agent output files

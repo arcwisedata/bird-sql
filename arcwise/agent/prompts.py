@@ -28,12 +28,13 @@ Prefer to reference results by their exec_result_id rather than citing values ve
 
 ## SQLite tips
 
+* If you need to filter but are not provided exact filter values, start by running an unfiltered `SELECT DISTINCT` query to see the possible values.
 * In GROUP BY and ORDER BY clauses, prefer to reference columns by index number.
 * Use backticks to escape columns/table names if needed.
 * Always fully qualify column names with the table name or alias.
 * Ensure that each output column has a well-defined alias.
 * Remember to cast integers to REALs before division operations (to avoid automatic truncation).
-* If the user asks for a specific number of decimal places, use ROUND(x, decimal_places). Otherwise, leave all results un-rounded.
+* If (and only if) the user asks for a specific number of decimal places, use ROUND(x, decimal_places). Otherwise, NEVER use the ROUND function.
 
 Example:
 
@@ -51,7 +52,7 @@ For example, if the following query returns 0:
 
 `SELECT COUNT(*) FROM example table WHERE column1 = 'value' AND column2 = 'value2'`
 
-It would be a good idea to use execute_sql to inspect the database to verify the filters are correct:
+You should use execute_sql to inspect the database to verify the filters are correct:
 
 `SELECT DISTINCT column1, column2 FROM example_table`
 
