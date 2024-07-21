@@ -14,10 +14,20 @@ def coro(f):  # type: ignore
     return wrapper
 
 
-def truncate_val(v: Any):
-    if isinstance(v, str) and len(v) > 100:
-        return v[:100] + "…"
-    return v
+def stringify(v: Any, max_len: int = 50, quote_strings: bool = True) -> str:
+    match v:
+        case None:
+            return "NULL"
+        case str():
+            if len(v) > max_len:
+                v = v[:max_len] + "…"
+            if quote_strings:
+                return repr(v)
+            return v
+        case float():
+            return f"{v:.10g}"
+        case _:
+            return str(v)
 
 
 T = TypeVar("T")

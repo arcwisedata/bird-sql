@@ -1,12 +1,11 @@
 import json
 import re
-from typing import Any
 
 import litellm
 
 from .ddl import quote_identifier
 from .typedefs import ColumnInfo, Table
-from .utils import truncate_val
+from .utils import stringify
 
 
 def _normalize_for_json(name: str):
@@ -28,9 +27,9 @@ def _format_column(c: ColumnInfo):
         result += f"\nValue description: {desc}"
     if c.sample_values:
         result += f"\nSample values ({c.unique_count} unique): " + ", ".join(
-            [repr(truncate_val(v)) for v in c.sample_values]
+            [stringify(v) for v in c.sample_values]
         )
-    result += f"\nRange: {repr(truncate_val(c.min_value))} to {repr(truncate_val(c.max_value))}"
+    result += f"\nRange: {stringify(c.min_value)} to {stringify(c.max_value)}"
     return result
 
 

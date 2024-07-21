@@ -30,19 +30,10 @@ Prefer to reference results by their exec_result_id rather than citing values ve
 
 * If you need to filter but are not provided exact filter values, start by running an unfiltered `SELECT DISTINCT` query to see the possible values.
 * In GROUP BY and ORDER BY clauses, prefer to reference columns by index number.
-* Use backticks to escape columns/table names if needed.
 * Always fully qualify column names with the table name or alias.
 * Ensure that each output column has a well-defined alias.
-* Remember to cast integers to REALs before division operations (to avoid automatic truncation).
 * If (and only if) the user asks for a specific number of decimal places, use ROUND(x, decimal_places). Otherwise, NEVER use the ROUND function.
-
-Example:
-
-```sql
-SELECT CAST(`int column` AS REAL) / `other column` AS ratio
-FROM example_table
-ORDER BY 1 NULLS LAST
-```
+* Ages should calculated by subtracting a person's birth year from `STRFTIME('%Y', CURRENT_TIMESTAMP)`
 
 # Handling errors
 
