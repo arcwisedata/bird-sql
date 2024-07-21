@@ -1,34 +1,23 @@
 import asyncio
-import json
 from collections import defaultdict
-from contextlib import aclosing
-from dataclasses import dataclass
-from functools import partial
-from typing import Any
+import json
+import random
 
 import click
 import litellm
 import numpy as np
 from openai.types.chat import ChatCompletionMessageParam
-from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from .ddl import Table, get_table_ddl
 from .typedefs import BIRDQuestion, Database, SchemaPredictions
 from .utils import coro, load_database_metadata, load_questions
-from vllm import LLM, SamplingParams
+from vllm import LLM, RequestOutput, SamplingParams
 
-CONTEXT_TOKEN_LIMIT = 8000
 RELEVANCY_THRESHOLD = 0.50
 EMBED_BATCH_SIZE = 128
-
-
-@dataclass
-class DatabaseInfo:
-    db: Database
-    # Tokens/embeddings of each db.tables
-    table_tokens: list[list[int]]
-    table_embeddings: np.ndarray | None
+NUM_VOTES = 5
+MIN_VOTES = 2
 
 
 @click.command()
@@ -36,6 +25,7 @@ class DatabaseInfo:
 @click.option("--output-file", help="Path to output file", required=True)
 @click.option("--metadata-file", help="Path to JSON metadata", required=True)
 @click.option("--model", help="Model identifier", required=True)
+@click.option("--max-model-len", help="Model context length", default=9216)
 @click.option("--embedding-model", help="Model identifier", required=True)
 @coro
 async def main(
@@ -43,6 +33,7 @@ async def main(
     output_file: str,
     metadata_file: str,
     model: str,
+    max_model_len: int,
     embedding_model: str,
 ) -> None:
     questions = load_questions(questions_file)
@@ -51,58 +42,60 @@ async def main(
         model=model,
         enable_prefix_caching=True,
         gpu_memory_utilization=0.95,
-        max_num_batched_tokens=10240,
-        max_model_len=10240,
+        max_num_batched_tokens=max_model_len,
+        max_model_len=max_model_len,
+        trust_remote_code=True,
     )
-    database_info = {}
     tokenizer = AutoTokenizer.from_pretrained(model)
-    for db_name, db in tqdm(metadata.items(), desc="Embedding schemas"):
+    context_token_limit = max_model_len - 1000  # buffer for prompt + output
+    for db_name, db in metadata.items():
+        db_questions = [q for q in questions if q.db_id == db_name]
+        if not db_questions:
+            continue
+        print(f"Processing database {db_name} ({len(db_questions)} questions)")
+
         table_schemas = [_format_table(table) for table in db.tables]
         table_tokens: list[list[int]] = tokenizer(table_schemas, add_special_tokens=False)["input_ids"]  # type: ignore
         total_tokens = sum(len(tokens) for tokens in table_tokens)
-        if total_tokens > CONTEXT_TOKEN_LIMIT:
+
+        table_embeddings = None
+        question_embeddings = [None] * len(db_questions)
+        if total_tokens > context_token_limit:
             print(f"Note: {db_name} has long context length ({total_tokens})")
-        database_info[db_name] = DatabaseInfo(
-            db=db,
-            table_tokens=table_tokens,
-            table_embeddings=(
-                await batch_embed(embedding_model, table_schemas)
-                if total_tokens > CONTEXT_TOKEN_LIMIT
-                else None
+            table_embeddings = await batch_embed(embedding_model, table_schemas)
+            question_embeddings = await batch_embed(
+                embedding_model, text=[q.question_evidence() for q in db_questions]
+            )
+
+        question_prompts = [
+            _create_prompt(
+                question,
+                question_embedding,
+                db,
+                table_tokens,
+                table_embeddings,
+                tokenizer,
+                context_token_limit,
+            )
+            for question, question_embedding in zip(db_questions, question_embeddings)
+            if not question.schema_predictions
+        ]
+        prompt_token_ids: list[list[int]] = tokenizer.apply_chat_template(  # type: ignore
+            question_prompts,  # type: ignore
+            add_generation_prompt=True,
+        )
+
+        outputs = llm.generate(
+            prompt_token_ids=prompt_token_ids,
+            sampling_params=SamplingParams(
+                temperature=0.3, max_tokens=1000, n=NUM_VOTES
             ),
         )
+        for question, output in zip(db_questions, outputs):
+            question.schema_predictions = _process_prediction(question, db, output)
 
-    question_embeddings = await batch_embed(
-        embedding_model, text=[q.question_evidence() for q in questions]
-    )
-    question_prompts = [
-        _create_prompt(
-            question,
-            embedding,
-            database_info[question.db_id],
-            tokenizer,
-        )
-        for question, embedding in zip(questions, question_embeddings)
-        if not question.schema_predictions
-    ]
-    prompt_token_ids: list[list[int]] = [
-        # IMPORTANT: Strip Mistral's EOS token for assistant responses
-        input_ids[:-1]  # type: ignore
-        for input_ids in tokenizer.apply_chat_template(question_prompts)  # type: ignore
-    ]
-    outputs = llm.generate(
-        prompt_token_ids=prompt_token_ids,
-        sampling_params=SamplingParams(temperature=0, max_tokens=1000),
-    )
-
-    for question, output in zip(questions, outputs):
-        completion = output.outputs[0].text
-        question.schema_predictions = _process_prediction(
-            question, database_info[question.db_id], completion
-        )
-
-    with open(output_file, "w") as f:
-        json.dump([q.model_dump() for q in questions], f, indent=2)
+        with open(output_file, "w") as f:
+            json.dump([q.model_dump() for q in questions], f, indent=2)
 
 
 def _format_table(table: Table) -> str:
@@ -121,31 +114,35 @@ def _format_table(table: Table) -> str:
 
 def _create_prompt(
     question: BIRDQuestion,
-    question_embedding: np.ndarray,
-    db_info: DatabaseInfo,
+    question_embedding: np.ndarray | None,
+    db: Database,
+    table_tokens: list[list[int]],
+    table_embeddings: np.ndarray | None,
     tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+    token_limit: int,
 ) -> list[ChatCompletionMessageParam]:
-    db = db_info.db
-    if (embeddings := db_info.table_embeddings) is not None:
+    if question_embedding is not None and table_embeddings is not None:
         selected_tables = []
         selected_schemas = []
         token_usage = 0
-        relevancy = np.dot(embeddings, question_embedding)
+        relevancy = np.dot(table_embeddings, question_embedding)
         for index, score in sorted(enumerate(relevancy), key=lambda x: -x[1]):
             if score < RELEVANCY_THRESHOLD and len(selected_tables) > 0:
                 break
             selected_tables.append(db.tables[index])
-            table_tokens: list[int] = db_info.table_tokens[index]
-            if token_usage + len(table_tokens) >= CONTEXT_TOKEN_LIMIT:
-                budget = max(CONTEXT_TOKEN_LIMIT - token_usage, 128)
-                selected_schemas.append(tokenizer.decode(table_tokens[:budget]) + "...")
+            tokens_to_add: list[int] = table_tokens[index]
+            if token_usage + len(tokens_to_add) > token_limit:
+                budget = max(token_limit - token_usage, 128)
+                selected_schemas.append(
+                    tokenizer.decode(tokens_to_add[:budget]) + "..."
+                )
                 break
-            token_usage += len(table_tokens)
-            selected_schemas.append(tokenizer.decode(table_tokens))
+            token_usage += len(tokens_to_add)
+            selected_schemas.append(tokenizer.decode(tokens_to_add))
         schema = "\n".join(selected_schemas)
     else:
         selected_tables = db.tables
-        schema = "\n".join(tokenizer.batch_decode(db_info.table_tokens))
+        schema = "\n".join(tokenizer.batch_decode(table_tokens))
 
     question.filtered_schema = "\n".join(
         get_table_ddl(table) for table in selected_tables
@@ -158,53 +155,79 @@ def _create_prompt(
 <schema>
 {schema}
 </schema>
-{question.question.strip()}
-{'Context: ' + question.evidence if question.evidence else ''}""".strip(),
+{question.question_evidence()}""".strip(),
         },
-        # Prefill response
-        {"role": "assistant", "content": "Output Types\n"},
     ]
 
 
 def _process_prediction(
-    question: BIRDQuestion, db_info: DatabaseInfo, completion: str
+    question: BIRDQuestion, db: Database, output: RequestOutput
 ) -> SchemaPredictions | None:
-    valid_columns = set(
-        f"{table.name}.{col.name}"
-        for table in db_info.db.tables
-        for col in table.columns
-    )
-    input_column_descriptions = defaultdict(list)
-    lines = completion.splitlines()
-    if "Input Columns" not in lines:
-        print(f"Warning: malformed prediction for question: {question.question}")
-        return
+    input_column_votes = defaultdict(list)
+    output_type_votes = defaultdict(list)
+    for completion in output.outputs:
+        lines = completion.text.splitlines()
+        if "Input Columns" not in lines:
+            print(f"Warning: malformed prediction for question: {question.question}")
+            return
 
-    if lines[0] == "Output Types":
-        lines = lines[1:]
+        if lines[0].strip() == "Output Types":
+            lines = lines[1:]
 
-    input_columns_line = lines.index("Input Columns")
-    output_types = _parse_output_types(lines[:input_columns_line])
+        input_columns_line = lines.index("Input Columns")
+        output_types = _parse_output_types(lines[:input_columns_line])
+        if output_types:
+            output_type_votes[tuple(x.type for x in output_types)].append(output_types)
 
-    last_desc = None
-    for line in lines[input_columns_line + 1 :]:
-        if line.startswith("--"):
-            last_desc = line[2:].strip()
-        elif (col_name := line.strip()) and col_name in valid_columns:
-            input_column_descriptions[col_name].append(last_desc)
+        last_desc = None
+        all_columns = {
+            f"{table.name}.{column.name}"
+            for table in db.tables
+            for column in table.columns
+        }
+        for line in lines[input_columns_line + 1 :]:
+            if line.startswith("--"):
+                last_desc = line[2:].strip()
+            elif (col_name := line.strip()) and col_name in all_columns:
+                input_column_votes[col_name].append(last_desc)
 
+    final_output_votes = max(output_type_votes.values(), key=len, default=[])
     final_input_columns = [
         SchemaPredictions.InputColumn(
-            column=col,
-            description=descs[0],
+            column=col, description=random.choice(votes), votes=len(votes)
         )
-        for col, descs in input_column_descriptions.items()
+        for col, votes in input_column_votes.items()
+        if len(votes) >= MIN_VOTES
     ]
+    final_input_columns.sort(key=lambda x: -(x.votes or 0))
     return SchemaPredictions(
-        output_types=output_types,
+        output_types=(
+            # If we fail to reach agreement, let the agent decide
+            final_output_votes[0] if len(final_output_votes) >= MIN_VOTES else []
+        ),
         input_columns=final_input_columns,
-        raw_prediction=completion,
+        raw_prediction=output.outputs[0].text,
     )
+
+
+COLUMN_TYPES = ["real", "integer", "text", "date", "datetime"]
+
+
+# (This turned out to be slow and not that helpful.)
+# def _guided_output_regex(db: Database) -> str:
+#     # Create a union of all table/column combinations
+#     # Example: (table1\.(col1|col2)|table2\.(col1|col2))...
+#     table_patterns = []
+#     for table in db.tables:
+#         table_pattern = re.escape(table.name + ".")
+#         column_pattern = "|".join(re.escape(col.name) for col in table.columns)
+#         table_patterns.append(f"{table_pattern}({column_pattern})")
+#     column_name_regex = "|".join(table_patterns)
+#     column_type_regex = "|".join(COLUMN_TYPES)
+#     return (
+#         f"Output Types(\n-- [^\n]+\n({column_type_regex}))+\n"
+#         f"Input Columns(\n-- [^\n]+\n({column_name_regex}))+"
+#     )
 
 
 def _parse_output_types(lines: list[str]) -> list[SchemaPredictions.OutputType]:
@@ -214,27 +237,20 @@ def _parse_output_types(lines: list[str]) -> list[SchemaPredictions.OutputType]:
         if line.startswith("--"):
             last_desc = line[2:].strip()
         elif type_ := line.strip():
-            if not last_desc or type_ not in {
-                "real",
-                "integer",
-                "text",
-                "date",
-                "datetime",
-            }:
-                return []
+            if not last_desc or type_ not in COLUMN_TYPES:
+                return []  # Void out bad guesses
             output_types.append(
                 SchemaPredictions.OutputType(type=type_, description=last_desc)
             )
-            last_desc = None
     return output_types
 
 
 SCHEMA_PREDICTION_PROMPT: list[ChatCompletionMessageParam] = [
     {
         "role": "system",
-        "content": """Given a SQL database and question, please determine a list of "Output Types" and "Input Columns" required to answer the question.
+        "content": f"""Given a SQL database and question, please determine a list of "Output Types" and "Input Columns" required to answer the question.
 Before each list item, write a `--` line comment explaining why it is needed, citing the user's question when possible.
-Output types should be one of: real, integer, text, date, datetime
+Output types should be one of: {", ".join(COLUMN_TYPES)}
 Input columns should be formatted without quotes as: table_name.column_name
 Ensure that the output types provide exactly the information needed to answer the question and nothing more or less.""",
     },

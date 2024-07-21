@@ -22,10 +22,10 @@ from llama_index.vector_stores.duckdb import DuckDBVectorStore
 from tqdm.asyncio import tqdm
 from transformers import AutoTokenizer
 
-from .ddl import get_table_ddl
-from .sql_references import extract_sql_references
-from .typedefs import Table
-from .utils import (
+from arcwise.ddl import get_table_ddl
+from arcwise.sql_references import extract_sql_references
+from arcwise.typedefs import Table
+from arcwise.utils import (
     BIRDQuestion,
     coro,
     load_database_metadata,
