@@ -1,7 +1,7 @@
 import asyncio
 import csv
+import json
 import re
-import sqlite3
 from io import StringIO
 
 import sqlglot
@@ -150,16 +150,25 @@ async def execute_sql(
     return rows[0], list(rows[1:])  # type: ignore
 
 
-async def _execute_sqlite(sql: str, sql_context: SQLContext) -> list[list[str]]:
+async def _execute_sqlite(sql: str, sql_context: SQLContext) -> list[list[str | int | float]]:
     process = None
     try:
-        conn = sqlite3.connect(sql_context.db_url)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(sql)
-        columns = [col[0] for col in cursor.description]
-        rows = cursor.fetchall()
-        return [columns] + [[row[col] for col in columns] for row in rows]
+        process = await asyncio.create_subprocess_exec(
+            "sqlite3",
+            "-json",
+            sql_context.db_url,
+            sql,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            raise RuntimeError(f"SQLite error: {stderr.decode()}")
+        response_json = json.loads(stdout.decode())
+        if not response_json:
+            return []
+        return [list(response_json[0].keys())] + [list(row.values()) for row in response_json]
     except asyncio.CancelledError:
         if process:
             process.terminate()
