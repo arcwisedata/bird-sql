@@ -118,7 +118,7 @@ async def agent_loop(
                     sql_by_exec_result_id[tool_result.exec_result_id] = tool_result.sql
                     final_sql_result = tool_result
             except Exception as e:
-                gpt_result = f"Error parsing execute_sql arguments: {e}"
+                gpt_result = f"Error executing query: {e}"
                 logger.warning(gpt_result)
                 tool_result = ExecuteSQLToolResult(error=gpt_result)
 

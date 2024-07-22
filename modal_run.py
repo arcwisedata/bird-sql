@@ -49,7 +49,7 @@ def main(
 ):
     run_name = resume_run or "run-" + datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     run_dir = f"/bird/{run_name}"
-    os.makedirs(run_dir)
+    os.makedirs(run_dir, exist_ok=True)
     print("Saving output to:", run_dir)
 
     env = os.environ.copy()

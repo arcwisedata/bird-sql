@@ -80,8 +80,7 @@ async def execute_sql_tool(
     if arguments.query_identifier.startswith("final_answer"):
         # Do some sanity checks before executing the final query
         _check_rounding(question, sql)
-        for division_node in sg_query.find_all(exp.Div):
-            _lint_division_node(division_node, sg_query)
+        _check_mixed_division(sg_query)
 
     try:
         columns, rows = await execute_sql(sql, sql_context)
@@ -188,6 +187,10 @@ def _lint_sql(node: exp.Expression) -> exp.Expression:
     if isinstance(node, exp.Ordered):
         if not node.args.get("desc"):
             node.args["nulls_first"] = False
+    elif isinstance(node, exp.Div):
+        # SQLite defaults to integer division, which is not desirable
+        if node.find(exp.Cast) is None:
+            node.args["this"] = sqlglot.cast(node.this, "real")
 
     return node
 
@@ -208,11 +211,7 @@ def _check_rounding(question: BIRDQuestion, sql: str):
 # If a division mixes column references from two CTEs (or a CTE and the query itself),
 # assert that the two scopes have the same set of tables.
 # If they don't, it's a sign that the numerator & denominator operate on different quantities/units.
-def _lint_division_node(node: exp.Div, sg_query: exp.Query):
-    # SQLite defaults to integer division, which is not desirable
-    if node.find(exp.Cast) is None:
-        node.args["this"] = sqlglot.cast(node.this, "real")
-
+def _check_mixed_division(sg_query: exp.Query):
     # Find all tables used in each CTE
     ctes_to_tables: dict[str, set[str]] = {
         t.alias or t.name: {t.name for t in t.this.find_all(exp.Table)}
@@ -224,30 +223,23 @@ def _lint_division_node(node: exp.Div, sg_query: exp.Query):
     # Find all tables used in the root query scope
     root_tables = {t.name for t in sg_query.find_all(exp.Table) if t.name not in ctes_to_tables}
 
-    numerator_tables = _find_tables_used(node.left, ctes_to_tables, root_tables)
-    denominator_tables = _find_tables_used(node.right, ctes_to_tables, root_tables)
-    if numerator_tables and denominator_tables and numerator_tables != denominator_tables:
-        raise RuntimeError(
-            f"""
+    for node in sg_query.find_all(exp.Div):
+        numerator_tables = _find_tables_used(node.left, ctes_to_tables, root_tables)
+        denominator_tables = _find_tables_used(node.right, ctes_to_tables, root_tables)
+        if numerator_tables and denominator_tables and numerator_tables != denominator_tables:
+            raise RuntimeError(
+                f"""
 Division `{node.sql()}` is operating on different units.
 The numerator and denominator must be derived from the same set of tables, e.g.
 
 ```sql
-SELECT
-  CAST(
-    COUNT(DISTINCT
-      CASE
-        WHEN t2.is_valid THEN t1.id
-      END
-    ) AS REAL
-  ) * 100 / COUNT(DISTINCT t1.id) percent
+SELECT COUNT(DISTINCT CASE WHEN t2.is_valid THEN t1.id END) * 100.0 / COUNT(DISTINCT t1.id) percent
 FROM table1 AS t1
 INNER JOIN table2 AS t2 ON t1.id = t2.id
 ```
 
-Please rework the query and try again.
-"""
-        )
+Please rework the query and try again."""
+            )
 
 
 def _check_output_types(
