@@ -58,6 +58,7 @@ runs_volume = modal.Volume.from_name("runs-vol")
 def main(
     train_path: str,
     eval_path: str,
+    run_name: str,
 ):
     from datasets import load_dataset
     from transformers import TrainingArguments
@@ -118,7 +119,6 @@ def main(
         max_seq_length=max_seq_length,
     )
 
-    run_name = "mistral-nemo"
     import wandb
 
     wandb.init(project="bird-sql", entity="hansonw", name=run_name)
@@ -146,7 +146,7 @@ def main(
             fp16=False,
             bf16=True,
             # evaluation
-            per_device_eval_batch_size=8,
+            per_device_eval_batch_size=4,
             eval_strategy="steps",
             bf16_full_eval=True,
             eval_steps=0.2,
@@ -164,4 +164,4 @@ def main(
     model.save_pretrained("/runs/" + run_name + "/final")
     runs_volume.commit()
 
-    model.evaluate()
+    trainer.evaluate()
