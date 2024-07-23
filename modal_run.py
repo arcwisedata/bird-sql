@@ -39,7 +39,7 @@ bird_volume = modal.Volume.from_name("bird-data")
     timeout=86400,
     gpu="h100:1",
     volumes={"/bird": bird_volume},
-    secrets=[modal.Secret.from_local_environ(["AZURE_API_KEY"])],
+    secrets=[modal.Secret.from_dotenv()],
 )
 def main(
     db_path: str,
@@ -64,3 +64,30 @@ def main(
     proc.wait()
 
     bird_volume.commit()
+
+
+@app.function(
+    image=app_image,
+    timeout=3600,
+    gpu="h100:1",
+    volumes={"/bird": bird_volume, "/runs": modal.Volume.from_name("runs-vol")},
+    secrets=[modal.Secret.from_dotenv()],
+)
+def schema_predict(
+    questions_file: str,
+    metadata_file: str,
+    output_file: str,
+    model: str,
+    max_model_len: int = 9216,
+    embedding_model: str = "azure/text-embedding-3-large",
+):
+    import arcwise.llama_predict as llama_predict
+
+    llama_predict.main.callback(
+        questions_file=questions_file,
+        output_file=output_file,
+        metadata_file=metadata_file,
+        model=model,
+        max_model_len=max_model_len,
+        embedding_model=embedding_model,
+    )
