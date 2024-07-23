@@ -61,6 +61,7 @@ async def agent_loop(
             messages=list(message_log),  # type: ignore
             tools=[EXECUTE_SQL_TOOL],
             drop_params=True,
+            seed=42,
             temperature=0.0,
             timeout=60.0,
             max_retries=10,
