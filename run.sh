@@ -20,7 +20,6 @@ export AZURE_API_BASE="https://arcwise-ai-useast2.openai.azure.com"
 DB_PATH="$1"
 QUESTIONS_FILE="$2"
 OUTPUT_FILE="$3"
-OUTPUT_DIR=$(dirname "$OUTPUT_FILE")
 
 # Models
 CUSTOM_MODEL="arcwise/bird-mistral-nemo"
@@ -29,6 +28,7 @@ EMBED_MODEL="azure/text-embedding-3-large"
 AGENT_CONCURRENCY=${AGENT_CONCURRENCY:-3}
 
 # Intermediate outputs
+OUTPUT_DIR=${OUTPUT_DIR:-/tmp}
 METADATA_FILE="$OUTPUT_DIR/db_metadata.json"
 PREDICTIONS_FILE="$OUTPUT_DIR/intermediate_predictions.json"
 

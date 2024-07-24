@@ -67,10 +67,14 @@ def main(
 
 
 @app.function(
-    image=app_image,
+    image=app_image.env(dict(HUGGINGFACE_HUB_CACHE="/pretrained", HF_HUB_ENABLE_HF_TRANSFER="1")),
     timeout=3600,
     gpu="h100:1",
-    volumes={"/bird": bird_volume, "/runs": modal.Volume.from_name("runs-vol")},
+    volumes={
+        "/bird": bird_volume,
+        "/runs": modal.Volume.from_name("runs-vol"),
+        "/pretrained": modal.Volume.from_name("pretrained-vol"),
+    },
     secrets=[modal.Secret.from_dotenv()],
 )
 def schema_predict(

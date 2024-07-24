@@ -25,8 +25,8 @@ from openai.types.chat import ChatCompletionMessageToolCall
 
 
 MAX_ITERATIONS = 10
-LITELLM_RETRIES = 3
-LITELLM_TIMEOUT = 60.0
+LITELLM_RETRIES = 10
+LITELLM_TIMEOUT = 120.0
 SAMPLE_VALUE_BUDGET = 200
 
 
@@ -63,8 +63,8 @@ async def agent_loop(
             drop_params=True,
             seed=42,
             temperature=0.0,
-            timeout=60.0,
-            max_retries=10,
+            timeout=LITELLM_TIMEOUT,
+            max_retries=LITELLM_RETRIES,
         )
         message = response.choices[0].message
         if message.content:
@@ -296,4 +296,9 @@ def _get_router() -> Router:
                     },
                 }
             )
-    return Router(model_list)
+    return Router(
+        model_list,
+        num_retries=LITELLM_RETRIES,
+        disable_cooldowns=True,
+        retry_after=10,
+    )

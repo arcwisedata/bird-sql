@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import re
 import click
 import json
 import os
@@ -25,7 +26,13 @@ RELATIONSHIPS = {
     (False, True): "many-to-one",
     (False, False): "many-to-many",
 }
-TABLE_DESCRIPTION_CSV_COLUMNS = ["original_column_name", "column_name", "column_description", "data_format", "value_description"]
+TABLE_DESCRIPTION_CSV_COLUMNS = [
+    "original_column_name",
+    "column_name",
+    "column_description",
+    "data_format",
+    "value_description",
+]
 
 
 @dataclass
@@ -116,7 +123,7 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
     for table, column_stats in zip(tables, table_column_stats):
         db_id = table.db_id
 
-        if (descriptions := read_table_description(db_path, db_id, [table.name])) is not None:
+        if (descriptions := read_table_description(db_path, db_id, table.name)) is not None:
             description_rows = list(descriptions.itertuples(index=False))
             description_by_name = {row[0].strip().lower(): row for row in description_rows}
         else:
@@ -137,9 +144,19 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                 else:
                     expected_cols, additional_cols = col_description[:5], col_description[5:]
                     _, orig_col_name, description, _type, value_description = expected_cols
-                    additional_info = [str_i for i in additional_cols if (str_i := str(i)) and not isinstance(i, int)]
-                    if additional_info:
-                        additional_info = f"Some included information which may or may not be relevant:\n" + "\n".join(additional_info)
+                    additional_info = [
+                        str_i
+                        for i in additional_cols
+                        if (str_i := str(i)) and not isinstance(i, int)
+                    ]
+                    additional_info = (
+                        (
+                            "Some included information which may or may not be relevant:\n"
+                            + "\n".join(additional_info)
+                        )
+                        if additional_info
+                        else ""
+                    )
                     if value_description and additional_info:
                         value_description += "\n" + additional_info
                     elif additional_info:
@@ -223,21 +240,37 @@ def approx_eq(a, b, tol=1e-6):
     return abs(a - b) < tol
 
 
-def read_table_description(
-    db_path: str, db_id: str, possible_description_table_names: list[str]
-) -> pd.DataFrame | None:
+def _normalize_name(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "_", name.lower())
+
+
+def read_table_description(db_path: str, db_id: str, table_name: str) -> pd.DataFrame | None:
+    dir = pathlib.Path(db_path) / f"{db_id}/database_description"
+    if not dir.exists():
+        print(f"Warning: {db_id} has no descriptions")
+        return None
+
+    full_path = None
+    normalized_table_name = _normalize_name(table_name)
+    for csv_path in dir.glob("*.csv"):
+        if _normalize_name(csv_path.stem) == normalized_table_name:
+            full_path = csv_path
+            break
+    if full_path is None:
+        print(f"Warning: No matching description file for {db_id}.{table_name}")
+        return None
+
     descriptions = None
-    for table_name in possible_description_table_names:
-        full_path = pathlib.Path(db_path) / f"{db_id}/database_description/{table_name}.csv"
-        for encoding in ["utf-8", "latin1", "ISO-8859-1", "cp1252"]:
-            try:
-                descriptions = pd.read_csv(full_path, encoding=encoding)
-                break
-            except Exception:
-                pass
+    for encoding in ["utf-8", "latin1", "ISO-8859-1", "cp1252"]:
+        try:
+            descriptions = pd.read_csv(full_path, encoding=encoding)
+            break
+        except Exception:
+            pass
     if descriptions is None:
         print(f"Warning: could not read description file {full_path}")
         return None
+
     extra_columns = list(set(descriptions.columns) - set(TABLE_DESCRIPTION_CSV_COLUMNS))
     descriptions = descriptions[TABLE_DESCRIPTION_CSV_COLUMNS + extra_columns]
     descriptions.fillna("", inplace=True)

@@ -16,7 +16,7 @@ from vllm import LLM, RequestOutput, SamplingParams
 
 RELEVANCY_THRESHOLD = 0.50
 EMBED_BATCH_SIZE = 128
-NUM_VOTES = 5
+NUM_VOTES = 7
 MIN_VOTES = 2
 
 
@@ -55,7 +55,9 @@ async def main(
         print(f"Processing database {db_name} ({len(db_questions)} questions)")
 
         table_schemas = [_format_table(table) for table in db.tables]
-        table_tokens: list[list[int]] = tokenizer(table_schemas, add_special_tokens=False)["input_ids"]  # type: ignore
+        table_tokens: list[list[int]] = tokenizer(table_schemas, add_special_tokens=False)[
+            "input_ids"
+        ]  # type: ignore
         total_tokens = sum(len(tokens) for tokens in table_tokens)
 
         table_embeddings = None
@@ -87,9 +89,7 @@ async def main(
 
         outputs = llm.generate(
             prompt_token_ids=prompt_token_ids,
-            sampling_params=SamplingParams(
-                temperature=0.3, max_tokens=1000, n=NUM_VOTES
-            ),
+            sampling_params=SamplingParams(temperature=0.3, max_tokens=1000, n=NUM_VOTES),
         )
         for question, output in zip(db_questions, outputs):
             question.schema_predictions = _process_prediction(question, db, output)
@@ -100,9 +100,7 @@ async def main(
 
 def _format_table(table: Table) -> str:
     assert table.ai_description, "AI descriptions are required"
-    schema = (
-        "-- " + table.ai_description.replace("\n", "\n-- ") + "\n# Table: {table.name}"
-    )
+    schema = "-- " + table.ai_description.replace("\n", "\n-- ") + "\n# Table: {table.name}"
 
     for col in table.columns:
         assert col.ai_description, "AI descriptions are required"
@@ -133,9 +131,7 @@ def _create_prompt(
             tokens_to_add: list[int] = table_tokens[index]
             if token_usage + len(tokens_to_add) > token_limit:
                 budget = max(token_limit - token_usage, 128)
-                selected_schemas.append(
-                    tokenizer.decode(tokens_to_add[:budget]) + "..."
-                )
+                selected_schemas.append(tokenizer.decode(tokens_to_add[:budget]) + "...")
                 break
             token_usage += len(tokens_to_add)
             selected_schemas.append(tokenizer.decode(tokens_to_add))
@@ -144,9 +140,7 @@ def _create_prompt(
         selected_tables = db.tables
         schema = "\n".join(tokenizer.batch_decode(table_tokens))
 
-    question.filtered_schema = "\n".join(
-        get_table_ddl(table) for table in selected_tables
-    )
+    question.filtered_schema = "\n".join(get_table_ddl(table) for table in selected_tables)
 
     return SCHEMA_PREDICTION_PROMPT + [
         {
@@ -181,9 +175,7 @@ def _process_prediction(
 
         last_desc = None
         all_columns = {
-            f"{table.name}.{column.name}"
-            for table in db.tables
-            for column in table.columns
+            f"{table.name}.{column.name}" for table in db.tables for column in table.columns
         }
         for line in lines[input_columns_line + 1 :]:
             if line.startswith("--"):
@@ -239,9 +231,7 @@ def _parse_output_types(lines: list[str]) -> list[SchemaPredictions.OutputType]:
         elif type_ := line.strip():
             if not last_desc or type_ not in COLUMN_TYPES:
                 return []  # Void out bad guesses
-            output_types.append(
-                SchemaPredictions.OutputType(type=type_, description=last_desc)
-            )
+            output_types.append(SchemaPredictions.OutputType(type=type_, description=last_desc))
     return output_types
 
 
@@ -309,9 +299,7 @@ async def batch_embed(model: str, text: list[str]) -> np.ndarray:
         )
 
     embeddings = await litellm.aembedding(model=model, input=text)
-    assert embeddings.data and len(embeddings.data) == len(
-        text
-    ), "Error getting embeddings"
+    assert embeddings.data and len(embeddings.data) == len(text), "Error getting embeddings"
     data = sorted(embeddings.data, key=lambda x: x["index"])
     return np.array([d["embedding"] for d in data])
 
