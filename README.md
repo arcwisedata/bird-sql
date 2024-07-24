@@ -2,18 +2,31 @@
 
 Arcwise team submission for https://bird-bench.github.io
 
-## Full run
+## Instructions
 
-On the mock dataset:
+Requires Docker with CUDA and an Nvidia GPU with >=40GB VRAM.
+
+For example, to run on the included `mock_dataset`:
 
 ```bash
 docker build . -t arcwise-bird
 
-export AZURE_API_KEY=xxxxxxxxx
-docker run --runtime nvidia --gpus all -v $(pwd)/mock_dataset:/data -e AZURE_API_KEY \
-  arcwise-bird /data/databases /data/questions.json /data/predict_mock.json
+# Provided Azure OpenAI key
+AZURE_API_KEY=xxxxxxxxx
+# Replace with path to actual data
+BIRD_PATH="$(pwd)/mock_dataset"
 
-# Use official evaluation script
+# Arguments: {databases_dir} {questions_file} {output_file}
+# (May need to add `--runtime nvidia` on some systems.)
+docker run --gpus all -v "$BIRD_PATH":/data -e AZURE_API_KEY arcwise-bird \
+    /data/databases /data/questions.json /data/predict_mock.json
+```
+
+The final SQL predictions will be written to the 3rd argument.
+
+To verify with the BIRD official evaluation script:
+
+```
 poetry run python -u ./bird_evaluation/src/evaluation.py \
   --predicted_sql_path ./mock_dataset/ --ground_truth_path ./mock_dataset/ \
   --db_root_path ./mock_dataset/databases/ --data_mode mock \
