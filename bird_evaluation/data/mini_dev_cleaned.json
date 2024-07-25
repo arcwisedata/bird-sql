@@ -19,8 +19,8 @@
     "question_id": 1473,
     "db_id": "debit_card_specializing",
     "question": "What was the average monthly consumption of customers in SME for the year 2013?",
-    "evidence": "Average Monthly consumption = AVG(Consumption) / 12; Year 2013 can be presented as Between 201301 And 201312; The first 4 strings of the Date values in the yearmonth table can represent year.",
-    "SQL": "SELECT AVG(T2.Consumption) / 12 FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID WHERE SUBSTR(T2.Date, 1, 4) = '2013' AND T1.Segment = 'SME'",
+    "evidence": "Average Monthly consumption = AVG(SUM(Consumption)) / 12; Year 2013 can be presented as Between 201301 And 201312; The first 4 strings of the Date values in the yearmonth table can represent year.",
+    "SQL": "SELECT AVG(TotalConsumption) / 12 FROM (SELECT SUM(T2.Consumption) AS TotalConsumption FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID WHERE SUBSTR(T2.Date, 1, 4) = '2013' AND T1.Segment = 'SME' GROUP BY T1.CustomerID)",
     "difficulty": "moderate"
   },
   {
@@ -52,16 +52,18 @@
     "db_id": "debit_card_specializing",
     "question": "What is the difference in the annual average consumption of the customers with the least amount of consumption paid in CZK for 2013 between SME and LAM, LAM and KAM, and KAM and SME?",
     "evidence": "annual average consumption of customer with the lowest consumption in each segment = total consumption per year / the number of customer with lowest consumption in each segment; Difference in annual average = SME's annual average - LAM's annual average; Difference in annual average = LAM's annual average - KAM's annual average; Year 2013 can be presented as Between 201301 And 201312; The first 4 strings of the Date values in the yearmonth table can represent year.",
-    "SQL": "SELECT CAST(SUM(IIF(T1.Segment = 'SME', T2.Consumption, 0)) AS REAL) / COUNT(T1.CustomerID) - CAST(SUM(IIF(T1.Segment = 'LAM', T2.Consumption, 0)) AS REAL) / COUNT(T1.CustomerID) , CAST(SUM(IIF(T1.Segment = 'LAM', T2.Consumption, 0)) AS REAL) / COUNT(T1.CustomerID) - CAST(SUM(IIF(T1.Segment = 'KAM', T2.Consumption, 0)) AS REAL) / COUNT(T1.CustomerID) , CAST(SUM(IIF(T1.Segment = 'KAM', T2.Consumption, 0)) AS REAL) / COUNT(T1.CustomerID) - CAST(SUM(IIF(T1.Segment = 'SME', T2.Consumption, 0)) AS REAL) / COUNT(T1.CustomerID) FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Currency = 'CZK' AND T2.Consumption = ( SELECT MIN(Consumption) FROM yearmonth ) AND T2.Date BETWEEN 201301 AND 201312",
-    "difficulty": "challenging"
+    "SQL": "WITH customer_consumption AS (SELECT c.Segment, c.CustomerID, SUM(ym.Consumption) AS TotalConsumption, COUNT(DISTINCT ym.CustomerID) AS CustomerCount FROM customers AS c JOIN yearmonth AS ym ON c.CustomerID = ym.CustomerID WHERE ym.Date BETWEEN '201301' AND '201312' AND c.Currency = 'CZK' GROUP BY c.Segment, c.CustomerID), customer_average_consumption AS (SELECT Segment, TotalConsumption, CAST(TotalConsumption AS REAL) / CustomerCount AS AnnualAverageConsumption FROM customer_consumption), segment_min_consumption AS (SELECT Segment, MIN(TotalConsumption) LeastConsumptionCustomer FROM customer_average_consumption GROUP BY Segment), segment_min_consumption_avg AS (SELECT T1.Segment, T2.AnnualAverageConsumption FROM segment_min_consumption T1 JOIN customer_average_consumption T2 ON T1.Segment = T2.Segment AND T1.LeastConsumptionCustomer = T2.TotalConsumption) SELECT SUM(IIF(Segment = 'SME', AnnualAverageConsumption, 0)) - SUM(IIF(Segment = 'LAM', AnnualAverageConsumption, 0)), SUM(IIF(Segment = 'LAM', AnnualAverageConsumption, 0)) - SUM(IIF(Segment = 'KAM', AnnualAverageConsumption, 0)), SUM(IIF(Segment = 'KAM', AnnualAverageConsumption, 0)) - SUM(IIF(Segment = 'SME', AnnualAverageConsumption, 0)) FROM segment_min_consumption_avg",
+    "difficulty": "challenging",
+    "correction": "This is probably the most complex question in the mini-dev dataset. There are many challenges with the question as stated, hopefully our version is more correct!"
   },
   {
     "question_id": 1482,
     "db_id": "debit_card_specializing",
-    "question": "Which of the three segments—SME, LAM and KAM—has the biggest and lowest percentage increases in consumption paid in EUR between 2012 and 2013?",
-    "evidence": "Increase or Decrease = consumption for 2013 - consumption for 2012; Percentage of Increase = (Increase or Decrease / consumption for 2013) * 100%; The first 4 strings of the Date values in the yearmonth table can represent year",
-    "SQL": "SELECT CAST((SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2012%', T2.Consumption, 0))) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2012%', T2.Consumption, 0)), CAST(SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) , CAST(SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID",
-    "difficulty": "challenging"
+    "question": "Provide the percentage increase or decrease in consumption paid in EUR between 2012 and 2013 for SME, LAM, and KAM respectively.",
+    "evidence": "Increase or Decrease = consumption for 2013 - consumption for 2012; Percentage of Increase = (Increase or Decrease / consumption for 2012) * 100%; The first 4 strings of the Date values in the yearmonth table can represent year",
+    "SQL": "SELECT CAST((SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2012%', T2.Consumption, 0))) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'SME' AND T2.Date LIKE '2012%', T2.Consumption, 0)), CAST(SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'LAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)), CAST(SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2013%', T2.Consumption, 0)) - SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) AS FLOAT) * 100 / SUM(IIF(T1.Segment = 'KAM' AND T2.Date LIKE '2012%', T2.Consumption, 0)) FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Currency = 'EUR'",
+    "difficulty": "challenging",
+    "correction": "Numerous issues here: 1. There isn't any prior evidence to indicate that we should return three separate columns for each segment. Instead, we rephrased the question to be more consistent with the others 2. We corrected the evidence to match the SQL (the denominator should be 2012 instead of 2013). 3. The final SQL also didn't filter for EUR currency."
   },
   {
     "question_id": 1483,
@@ -92,8 +94,9 @@
     "db_id": "debit_card_specializing",
     "question": "How many percent of LAM customer consumed more than 46.73?",
     "evidence": "Percentage of LAM customer consumed more than 46.73 = (Total no. of LAM customers who consumed more than 46.73 / Total no. of LAM customers) * 100.",
-    "SQL": "SELECT CAST(SUM(IIF(T2.Consumption > 46.73, 1, 0)) AS FLOAT) * 100 / COUNT(T1.CustomerID) FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Segment = 'LAM'",
-    "difficulty": "moderate"
+    "SQL": "SELECT CAST(COUNT(DISTINCT IIF(T2.Consumption > 46.73, T1.CustomerID, NULL)) AS REAL) * 100 / COUNT(DISTINCT T1.CustomerID) FROM customers AS T1 INNER JOIN yearmonth AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Segment = 'LAM'",
+    "difficulty": "moderate",
+    "correction": "Percentage of customers requires deduplication on the customer ID, since there are multiple consumption entries per customer."
   },
   {
     "question_id": 1493,
@@ -132,8 +135,9 @@
     "db_id": "debit_card_specializing",
     "question": "Among the customers who paid in euro, how many of them have a monthly consumption of over 1000?",
     "evidence": "Pays in euro = Currency = 'EUR'.",
-    "SQL": "SELECT COUNT(*) FROM yearmonth AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T2.Currency = 'EUR' AND T1.Consumption > 1000.00",
-    "difficulty": "simple"
+    "SQL": "SELECT COUNT(DISTINCT T1.CustomerID) FROM yearmonth AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T2.Currency = 'EUR' AND T1.Consumption > 1000.00",
+    "difficulty": "simple",
+    "correction": "How many of them requires deduplication on the customer ID, since there are multiple transactions per customer."
   },
   {
     "question_id": 1506,
@@ -196,15 +200,16 @@
     "db_id": "debit_card_specializing",
     "question": "What is the percentage of the customers who used EUR in 2012/8/25?",
     "evidence": "'2012/8/25' can be represented by '2012-08-25'",
-    "SQL": "SELECT CAST(SUM(IIF(T2.Currency = 'EUR', 1, 0)) AS FLOAT) * 100 / COUNT(T1.CustomerID) FROM transactions_1k AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Date = '2012-08-25'",
-    "difficulty": "simple"
+    "SQL": "SELECT CAST(COUNT(DISTINCT IIF(T2.Currency = 'EUR', T1.CustomerID, NULL)) AS FLOAT) * 100 / COUNT(DISTINCT T1.CustomerID) FROM transactions_1k AS T1 INNER JOIN customers AS T2 ON T1.CustomerID = T2.CustomerID WHERE T1.Date = '2012-08-25'",
+    "difficulty": "simple",
+    "correction": "Percentage of customers requires deduplication on the customer ID, since there are multiple transactions per customer."
   },
   {
     "question_id": 1526,
     "db_id": "debit_card_specializing",
     "question": "For the customer who paid 634.8 in 2012/8/25, what was the consumption decrease rate from Year 2012 to 2013?",
     "evidence": "'2012/8/24' can be represented by '2012-08-24'; Consumption decrease rate = (consumption_2012 - consumption_2013) / consumption_2012",
-    "SQL": "SELECT CAST(SUM(IIF(SUBSTRING(Date, 1, 4) = '2012', Consumption, 0)) - SUM(IIF(SUBSTRING(Date, 1, 4) = '2013', Consumption, 0)) AS FLOAT) / SUM(IIF(SUBSTRING(Date, 1, 4) = '2012', Consumption, 0)) FROM yearmonth WHERE CustomerID = ( SELECT T1.CustomerID FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID WHERE T1.Date = '2012-08-25' AND T1.Price  = 1513.12 )",
+    "SQL": "SELECT CAST(SUM(IIF(SUBSTRING(Date, 1, 4) = '2012', Consumption, 0)) - SUM(IIF(SUBSTRING(Date, 1, 4) = '2013', Consumption, 0)) AS FLOAT) / SUM(IIF(SUBSTRING(Date, 1, 4) = '2012', Consumption, 0)) FROM yearmonth WHERE CustomerID = ( SELECT T1.CustomerID FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID WHERE T1.Date = '2012-08-25' AND T1.Price  = 634.8 )",
     "difficulty": "challenging"
   },
   {
@@ -218,18 +223,20 @@
   {
     "question_id": 1529,
     "db_id": "debit_card_specializing",
-    "question": "What is the amount spent by customer \"38508\" at the gas stations? How much had the customer spent in January 2012?",
-    "evidence": "January 2012 refers to the Date value = '201201'",
-    "SQL": "SELECT SUM(T1.Price ) , SUM(IIF(T3.Date = '201201', T1.Price, 0)) FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID INNER JOIN yearmonth AS T3 ON T1.CustomerID = T3.CustomerID WHERE T1.CustomerID = '38508'",
-    "difficulty": "moderate"
+    "question": "What is the amount spent by customer \"38508\" at the gas stations? How much had the customer spent in August 2012?",
+    "evidence": "August 2012 refers to the Date value = '201208'",
+    "SQL": "SELECT SUM(T1.Price), SUM(IIF(T1.Date LIKE '2012-08%', T1.Price, 0)) FROM transactions_1k AS T1 INNER JOIN gasstations AS T2 ON T1.GasStationID = T2.GasStationID WHERE T1.CustomerID = '38508'",
+    "difficulty": "moderate",
+    "correction": "There are no transactions in January (original SQL incorrectly uses 'yearmonth' consumption.). So we used August instead."
   },
   {
     "question_id": 1531,
     "db_id": "debit_card_specializing",
     "question": "Who is the top spending customer and how much is the average price per single item purchased by this customer? What currency was being used?",
     "evidence": "average price per single item = Total(price) / Total(amount)",
-    "SQL": "SELECT T2.CustomerID, SUM(T2.Price / T2.Amount), T1.Currency FROM customers AS T1 INNER JOIN transactions_1k AS T2 ON T1.CustomerID = T2.CustomerID WHERE T2.CustomerID = ( SELECT CustomerID FROM yearmonth ORDER BY Consumption DESC LIMIT 1 ) GROUP BY T2.CustomerID, T1.Currency",
-    "difficulty": "moderate"
+    "SQL": "SELECT t.CustomerID AS CustomerID, CAST(SUM(t.Price) AS REAL) / SUM(t.Amount) AS AvgPricePerItem, c.Currency AS Currency FROM transactions_1k AS t JOIN customers AS c ON t.CustomerID = c.CustomerID WHERE t.CustomerID = (SELECT CustomerID FROM (SELECT CustomerID, SUM(Price) AS TotalSpending FROM transactions_1k GROUP BY CustomerID ORDER BY TotalSpending DESC LIMIT 1)) GROUP BY t.CustomerID",
+    "difficulty": "moderate",
+    "correction": "Errors in the golden SQL: 1. SUM(Price / Amount) is not correct (and does not match 'evidence') 2. Top-spending customer would intuitively be the customer ID with the highest total consumption not just the highest one-time row"
   },
   {
     "question_id": 1533,
@@ -260,8 +267,9 @@
     "db_id": "student_club",
     "question": "Among the events attended by more than 10 members of the Student_Club, how many of them are meetings?",
     "evidence": "meetings events refers to type = 'Meeting'; attended by more than 10 members refers to COUNT(event_id) > 10",
-    "SQL": "SELECT T1.event_name FROM event AS T1  INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event GROUP BY T1.event_id  HAVING COUNT(T2.link_to_event) > 10 EXCEPT SELECT T1.event_name  FROM event AS T1  WHERE T1.type = 'Meeting'",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(*) FROM (SELECT T1.event_name FROM event AS T1 INNER JOIN attendance AS T2 ON T1.event_id = T2.link_to_event WHERE T1.type = 'Meeting' GROUP BY T1.event_id HAVING COUNT(T2.link_to_event) > 10)",
+    "difficulty": "moderate",
+    "correction": "The original SQL uses a strange EXCEPT (probably annotator error) and does not return a count as specified in the question."
   },
   {
     "question_id": 1323,
@@ -290,10 +298,11 @@
   {
     "question_id": 1338,
     "db_id": "student_club",
-    "question": "Was each expense in October Meeting on October 8, 2019 approved?",
+    "question": "Was each expense in October Meeting on October 8, 2019 approved? 'true' or 'false'",
     "evidence": "event_name = 'October Meeting' where event_date = '2019-10-08'; approved = True means expenses was approved; approved = False means expenses was not approved",
     "SQL": "SELECT T3.approved FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget WHERE T1.event_name = 'October Meeting' AND T1.event_date LIKE '2019-10-08%'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Because other questions use YES/NO, it's important to clarify that the result should retain the original format ('true' vs 'false'.)"
   },
   {
     "question_id": 1339,
@@ -458,10 +467,11 @@
   {
     "question_id": 1389,
     "db_id": "student_club",
-    "question": "Which event has the lowest cost?",
+    "question": "Which event has the lowest cost? Break ties by name in alphabetical order.",
     "evidence": "event refers to event_name; lowest cost means MIN(cost)",
-    "SQL": "SELECT T1.event_name FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget ORDER BY T3.cost LIMIT 1",
-    "difficulty": "simple"
+    "SQL": "SELECT T1.event_name FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget ORDER BY T3.cost, T1.event_name LIMIT 1",
+    "difficulty": "simple",
+    "correction": "There are multiple events with the same cost. It needs a tiebreaker."
   },
   {
     "question_id": 1390,
@@ -498,10 +508,11 @@
   {
     "question_id": 1399,
     "db_id": "student_club",
-    "question": "Did Maya Mclean attend the 'Women's Soccer' event?",
+    "question": "Did Maya Mclean attend the 'Women's Soccer' event? YES or NO.",
     "evidence": "Maya Mclean is the full name; full name refers to first_name, last_name; 'Women's Soccer' is an event_name",
-    "SQL": "SELECT CASE WHEN T3.event_name = 'Women''s Soccer' THEN 'YES' END AS result FROM member AS T1 INNER JOIN attendance AS T2 ON T1.member_id = T2.link_to_member INNER JOIN event AS T3 ON T2.link_to_event = T3.event_id WHERE T1.first_name = 'Maya' AND T1.last_name = 'Mclean'",
-    "difficulty": "moderate"
+    "SQL": "SELECT CASE WHEN COUNT(*) > 0 THEN 'YES' ELSE 'NO' END FROM member AS T1 INNER JOIN attendance AS T2 ON T1.member_id = T2.link_to_member INNER JOIN event AS T3 ON T2.link_to_event = T3.event_id WHERE T1.first_name = 'Maya' AND T1.last_name = 'Mclean' AND T3.event_name = 'Women''s Soccer'",
+    "difficulty": "moderate",
+    "correction": "Question should clarify that \"YES\" or \"NO\" is desired. Also, the true SQL does not return a single answer (it should aggregate the results.)"
   },
   {
     "question_id": 1401,
@@ -522,18 +533,20 @@
   {
     "question_id": 1404,
     "db_id": "student_club",
-    "question": "Identify the type of expenses and their total value approved for 'October Meeting' event.",
+    "question": "Identify the category of expenses and their total value approved for 'October Meeting' event.",
     "evidence": "total value refers to SUM(cost); 'October Meeting' is an event name;",
-    "SQL": "SELECT T1.type, SUM(T3.cost) FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget WHERE T1.event_name = 'October Meeting'",
-    "difficulty": "moderate"
+    "SQL": "SELECT T2.category, SUM(T3.cost) FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event INNER JOIN expense AS T3 ON T2.budget_id = T3.link_to_budget WHERE T1.event_name = 'October Meeting' GROUP BY T2.category",
+    "difficulty": "moderate",
+    "correction": "True SQL uses event type, not expense type. Also there is no clear \"expense type\" (there is both an expense description and budget category)."
   },
   {
     "question_id": 1405,
     "db_id": "student_club",
-    "question": "Calculate the amount budgeted for 'April Speaker' event. List all the budgeted categories for said event in an ascending order based on their amount budgeted.",
+    "question": "Calculate the amount budgeted for 'April Speaker' event. List all the budgeted categories for said event in an ascending order, along with their amount budgeted.",
     "evidence": "'April Speaker' is an event name; amount budgeted refers to SUM(amount); budget categories refers to category",
     "SQL": "SELECT T2.category, SUM(T2.amount) FROM event AS T1 JOIN budget AS T2 ON T1.event_id = T2.link_to_event WHERE T1.event_name = 'April Speaker' GROUP BY T2.category ORDER BY SUM(T2.amount) ASC",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Slightly rephrased to clarify output column order (category, amount)"
   },
   {
     "question_id": 1409,
@@ -580,8 +593,9 @@
     "db_id": "student_club",
     "question": "What are the budget category of the events located at MU 215 and a guest speaker type with a 0 budget spent?",
     "evidence": "budget category refers to category; events located at refers to location; type = 'Guest Speaker'; 0 budget spent refers to spent = 0; ",
-    "SQL": "SELECT DISTINCT T2.category, T1.type FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event WHERE T1.location = 'MU 215' AND T2.spent = 0 AND T1.type = 'Guest Speaker'",
-    "difficulty": "moderate"
+    "SQL": "SELECT DISTINCT T2.category FROM event AS T1 INNER JOIN budget AS T2 ON T1.event_id = T2.link_to_event WHERE T1.location = 'MU 215' AND T2.spent = 0 AND T1.type = 'Guest Speaker'",
+    "difficulty": "moderate",
+    "correction": "Question does not ask to return the guest speaker type."
   },
   {
     "question_id": 1432,
@@ -627,7 +641,7 @@
     "question_id": 1149,
     "db_id": "thrombosis_prediction",
     "question": "Are there more in-patient or outpatient who were male? What is the deviation in percentage?",
-    "evidence": "male refers to SEX = 'M'; in-patient refers to Admission = '+'; outpatient refers to Admission = '-'; percentage = DIVIDE(COUNT(ID) where SEX = 'M' and Admission = '+', COUNT(ID) where SEX  = 'M' and Admission = '-')",
+    "evidence": "male refers to SEX = 'M'; in-patient refers to Admission = '+'; outpatient refers to Admission = '-'; percentage = DIVIDE(COUNT(ID) where SEX = 'M' and Admission = '+', COUNT(ID) where SEX\u00a0 = 'M' and Admission = '-')",
     "SQL": "SELECT CAST(SUM(CASE WHEN Admission = '+' THEN 1 ELSE 0 END) AS REAL) * 100 / SUM(CASE WHEN Admission = '-' THEN 1 ELSE 0 END) FROM Patient WHERE SEX = 'M'",
     "difficulty": "moderate"
   },
@@ -642,10 +656,11 @@
   {
     "question_id": 1152,
     "db_id": "thrombosis_prediction",
-    "question": "What is the ratio of outpatient to inpatient followed up treatment among all the 'SLE' diagnosed patient?",
+    "question": "What is the ratio of inpatient to outpatient followed up treatment among all the 'SLE' diagnosed patient?",
     "evidence": "'SLE' diagnosed patient means Diagnosis = 'SLE'; inpatient refers to Admission = '+'; outpatient refers to Admission = '-'; calculation =  DIVIDE(COUNT(ID) where Diagnosis = 'SLE' and Admission = '+', COUNT(ID) where Diagnosis = 'SLE' and Admission = '-')",
     "SQL": "SELECT SUM(CASE WHEN Admission = '+' THEN 1.0 ELSE 0 END) / SUM(CASE WHEN Admission = '-' THEN 1 ELSE 0 END) FROM Patient WHERE Diagnosis = 'SLE'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Amended question to more not contradict both evidence and golden SQL."
   },
   {
     "question_id": 1153,
@@ -698,18 +713,20 @@
   {
     "question_id": 1166,
     "db_id": "thrombosis_prediction",
-    "question": "What are the symptoms observed by the youngest patient to ever did a medical examination? Identify their diagnosis.",
+    "question": "What are the symptoms observed by the youngest patient to ever did a medical examination? Identify the patient diagnosis.",
     "evidence": "The larger the birthday value, the younger the person is, and vice versa; symptoms observed refers to the symptoms is not NULL",
     "SQL": "SELECT T2.Symptoms, T1.Diagnosis FROM Patient AS T1 INNER JOIN Examination AS T2 ON T1.ID = T2.ID WHERE T2.Symptoms IS NOT NULL ORDER BY T1.Birthday DESC LIMIT 1",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "It's confusing because there is a diagnosis column in both the Examination table and the Patient table, which give different results. Slightly amended the question wording to indicate that the Patient diagnosis is what is requested."
   },
   {
     "question_id": 1168,
     "db_id": "thrombosis_prediction",
     "question": "The oldest SJS patient's medical laboratory work was completed on what date, and what age was the patient when they initially arrived at the hospital?",
     "evidence": "The larger the birthday value, the younger the person is, and vice versa; 'SJS' refers to diagnosis; (SUBTRACT(year(`First Date`)), year(Birthday)); age of the patients when they initially arrived at the hospital refers to year(Birthday)",
-    "SQL": "SELECT T1.Date, STRFTIME('%Y', T2.`First Date`) - STRFTIME('%Y', T2.Birthday),T2.Birthday FROM Laboratory AS T1 INNER JOIN Patient AS T2 ON T1.ID = T2.ID WHERE T2.Diagnosis = 'SJS' AND T2.Birthday IS NOT NULL ORDER BY T2.Birthday ASC LIMIT 1",
-    "difficulty": "challenging"
+    "SQL": "SELECT T1.Date, STRFTIME('%Y', T2.\"First Date\") - STRFTIME('%Y', T2.Birthday) FROM Laboratory AS T1 INNER JOIN Patient AS T2 ON T1.ID = T2.ID WHERE T2.Diagnosis = 'SJS' AND T2.Birthday IS NOT NULL ORDER BY T2.Birthday ASC LIMIT 1",
+    "difficulty": "challenging",
+    "correction": "The golden SQL also returns the birthday as a column, which was not specifically requested by the question."
   },
   {
     "question_id": 1169,
@@ -722,10 +739,11 @@
   {
     "question_id": 1171,
     "db_id": "thrombosis_prediction",
-    "question": "How many underage patients were examined during the course of the three-year period from 1990 to 1993?",
-    "evidence": "underage patients refers to year(Birthday) < 18; three-year period from 1990 to 1993 refers to year(`Examination Date`) between '1990' and '1993'",
+    "question": "How many patients were under age when examined during the course of the three-year period from 1990 to 1993?",
+    "evidence": "underage patients refers to year(\"Examination Date\") - year(Birthday) < 18; three-year period from 1990 to 1993 refers to year(\"Examination Date\") between '1990' and '1993'",
     "SQL": "SELECT COUNT(T1.ID) FROM Patient AS T1 INNER JOIN Examination AS T2 ON T1.ID = T2.ID WHERE STRFTIME('%Y', T2.`Examination Date`) BETWEEN '1990' AND '1993' AND STRFTIME('%Y', T2.`Examination Date`) - STRFTIME('%Y', T1.Birthday) < 18",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Changed question to clarify that age should be calculated based on the examination date."
   },
   {
     "question_id": 1175,
@@ -740,16 +758,18 @@
     "db_id": "thrombosis_prediction",
     "question": "For the patient who was diagnosed with SLE on 1994/2/19, what was his/her anti-Cardiolipin antibody concentration status on 1993/11/12?",
     "evidence": "diagnosed with SLE refers to Diagnosis = 'SLE'; 1994/2/19 refers to Description = '1994-02-19'; anti-Cardiolipin refers to aCL IgM; 1993/11/12 refers to Examination Date = '1993/11/12'",
-    "SQL": "SELECT `aCL IgA`, `aCL IgG`, `aCL IgM` FROM Examination WHERE ID IN ( SELECT ID FROM Patient WHERE Diagnosis = 'SLE' AND Description = '1994-02-19' ) AND `Examination Date` = '1993-11-12'",
-    "difficulty": "moderate"
+    "SQL": "SELECT \"aCL IgM\" FROM Examination WHERE ID IN (SELECT ID FROM Patient WHERE Diagnosis = 'SLE' AND Description = '1994-02-19') AND \"Examination Date\" = '1993-11-12'",
+    "difficulty": "moderate",
+    "correction": "Evidence specifically states \"anti-Cardiolipin refers to aCL IgM\" but the golden SQL also returns IgA and IgG."
   },
   {
     "question_id": 1185,
     "db_id": "thrombosis_prediction",
     "question": "For the patient who was born on 1959/2/18, what is the decrease rate for his/her total cholesterol from November to December in 1981?",
-    "evidence": "born on 1959/2/18 refers to Birthday = '1959-02-18'; calculation = DIVISION(SUBTRACT(SUM(Birthday = '1959-02-18' and Date like '1981-11-%' THEN `T-CHO`), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`)), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`))",
-    "SQL": "SELECT CAST((SUM(CASE WHEN T2.Date LIKE '1981-11-%' THEN T2.`T-CHO` ELSE 0 END) - SUM(CASE WHEN T2.Date LIKE '1981-12-%' THEN T2.`T-CHO` ELSE 0 END)) AS REAL) / SUM(CASE WHEN T2.Date LIKE '1981-12-%' THEN T2.`T-CHO` ELSE 0 END) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.Birthday = '1959-02-18'",
-    "difficulty": "challenging"
+    "evidence": "born on 1959/2/18 refers to Birthday = '1959-02-18'; calculation = DIVISION(SUBTRACT(SUM(Birthday = '1959-02-18' and Date like '1981-11-%' THEN `T-CHO`), SUM(Birthday = '1959-02-18' and Date like '1981-12-%' THEN `T-CHO`)), SUM(Birthday = '1959-02-18' and Date like '1981-11-%' THEN `T-CHO`))",
+    "SQL": "SELECT CAST((SUM(CASE WHEN T2.Date LIKE '1981-11-%' THEN T2.\"T-CHO\" ELSE 0 END) - SUM(CASE WHEN T2.Date LIKE '1981-12-%' THEN T2.\"T-CHO\" ELSE 0 END)) AS REAL) / SUM(CASE WHEN T2.Date LIKE '1981-11-%' THEN T2.\"T-CHO\" ELSE 0 END) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.Birthday = '1959-02-18'",
+    "difficulty": "challenging",
+    "correction": "For 'November to December', using November as the denominator is more intuitive."
   },
   {
     "question_id": 1187,
@@ -802,10 +822,11 @@
   {
     "question_id": 1205,
     "db_id": "thrombosis_prediction",
-    "question": "Was the patient with the number 57266's uric acid within a normal range?",
+    "question": "Was the patient with the number 57266's uric acid within a normal range? List 'true' or 'false' for each of their lab results.",
     "evidence": "uric acid within a normal range refers to UA > 8.0 and SEX = 'M'OR UA > 6.5 and SEX = 'F'",
     "SQL": "SELECT CASE WHEN (T1.SEX = 'F' AND T2.UA > 6.5) OR (T1.SEX = 'M' AND T2.UA > 8.0) THEN true ELSE false END FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.ID = 57266",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Clarified the question to make it clear that it's looking for multiple rows, and consistent formatting."
   },
   {
     "question_id": 1208,
@@ -844,8 +865,9 @@
     "db_id": "thrombosis_prediction",
     "question": "What is the average age of the male patient with high cholesterol?",
     "evidence": "average age = DIVIDE(SUM(SUBTRACT(YEAR(NOW()), YEAR(birthday))), COUNT(ID)); male patient refers to sex = 'M'; high cholesterol refers to `T-CHO` > = 250;",
-    "SQL": "SELECT AVG(STRFTIME('%Y', date('NOW')) - STRFTIME('%Y', T1.Birthday)) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.`T-CHO` >= 250 AND T1.SEX = 'M'",
-    "difficulty": "moderate"
+    "SQL": "SELECT AVG(age) FROM (SELECT DISTINCT T1.ID, STRFTIME('%Y', date('NOW')) - STRFTIME('%Y', T1.Birthday) as age FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.\"T-CHO\" >= 250 AND T1.SEX = 'M')",
+    "difficulty": "moderate",
+    "correction": "There are multiple lab results per patient, so we need to DISTINCT before computing the final average."
   },
   {
     "question_id": 1229,
@@ -891,81 +913,91 @@
     "question_id": 1239,
     "db_id": "thrombosis_prediction",
     "question": "Name the ID and age of patient with two or more laboratory examinations which show their hematoclit level exceeded the normal range.",
-    "evidence": "age = SUBTRACT(year(current_timestamp), year(Birthday)); patient with two or more laboratory examinations refers to COUNT(ID) > 2; hematoclit level exceeded the normal range refers to HCT > = 52;",
+    "evidence": "age = SUBTRACT(year(current_timestamp), year(Birthday)); patient with two or more laboratory examinations refers to COUNT(ID) >= 2; hematoclit level exceeded the normal range refers to HCT > = 52;",
     "SQL": "SELECT DISTINCT T1.ID, STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', T1.Birthday) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T1.ID IN ( SELECT ID FROM Laboratory WHERE HCT >= 52 GROUP BY ID HAVING COUNT(ID) >= 2 )",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Evidence had incorrect SQL for \"two or more laboratory examinations\" (>2)"
   },
   {
     "question_id": 1241,
     "db_id": "thrombosis_prediction",
     "question": "For patients with abnormal platelet level, state the number of patients with lower than normal range. How is it compare to the number of patients with higher than normal range?",
-    "evidence": "abnormal platelet level refers to PLT <= 100 or PLT >= 400; platelet level lower than normal range refers to PLT < 100; calculation = SUBTRACT(SUM(PLT < 100), SUM(PLT > 400)); platelet level higher than normal range refers to PLT > 400;",
-    "SQL": "SELECT SUM(CASE WHEN T2.PLT <= 100 THEN 1 ELSE 0 END) - SUM(CASE WHEN T2.PLT >= 400 THEN 1 ELSE 0 END) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID",
-    "difficulty": "challenging"
+    "evidence": "platelet level lower than normal range refers to PLT < 100; calculation = SUBTRACT(SUM(PLT < 100), SUM(PLT > 400)); platelet level higher than normal range refers to PLT > 400;",
+    "SQL": "SELECT COUNT(DISTINCT CASE WHEN T2.PLT < 100 THEN T1.id END) - COUNT(DISTINCT CASE WHEN T2.PLT > 400 THEN T1.id END) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID",
+    "difficulty": "challenging",
+    "correction": "1. There are multiple lab results per patient, but the question asks for number of DISTINCT patients. 2. The evidence had the wrong definition of low platelet counts."
   },
   {
     "question_id": 1242,
     "db_id": "thrombosis_prediction",
     "question": "For laboratory examinations take in 1984, list all patients below 50 years old with normal platelet level.",
     "evidence": "laboratory examinations take in 1984 refers to YEAR(Date) = '1984'; below 50 years old = SUBTRACT(year(current_timestamp), year(Birthday)) < 50; normal platelet level refers to PLT between 100 and 400; ",
-    "SQL": "SELECT DISTINCT T1.ID FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.PLT BETWEEN 100 AND 400 AND STRFTIME('%Y', T2.Date) - STRFTIME('%Y', T1.Birthday) < 50 AND STRFTIME('%Y', T2.Date) = '1984'",
-    "difficulty": "challenging"
+    "SQL": "SELECT DISTINCT T1.ID FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.PLT BETWEEN 100 AND 400 AND STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', T1.Birthday) < 50 AND STRFTIME('%Y', T2.Date) = '1984'",
+    "difficulty": "challenging",
+    "correction": "Golden SQL doesn't take into account current timestamp, despite the hint saying to do that"
   },
   {
     "question_id": 1243,
     "db_id": "thrombosis_prediction",
-    "question": "For all patients who are older than 55 years old, what is the percentage of female who has abnormal prothrombin time (PT)?",
+    "question": "For all patients who are older than 55 years old, what is the percentage of those with abnormal prothrombin time (PT) that are female?",
     "evidence": "older than 55 years old = SUBTRACT(year(current_timestamp), year(Birthday)) > 55; abnormal prothrombin time (PT) refers to PT > = 14; percentage = DIVIDE(SUM(PT > = 14 AND SEX = 'F'), SUM(PT > = 14)) * 100; female refers to sex = 'F'; ",
-    "SQL": "SELECT CAST(SUM(CASE WHEN T2.PT >= 14 AND T1.SEX = 'F' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(CASE WHEN T2.PT >= 14 THEN 1 ELSE 0 END) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', T1.Birthday) > 55",
-    "difficulty": "challenging"
+    "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN T2.PT >= 14 AND T1.SEX = 'F' THEN T1.ID END) AS REAL) * 100 / COUNT(DISTINCT CASE WHEN T2.PT >= 14 THEN T1.ID END) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', T1.Birthday) > 55",
+    "difficulty": "challenging",
+    "correction": "Ambiguous question and bad SQL (because of a fanout join) and not counting distinct IDs"
   },
   {
     "question_id": 1247,
     "db_id": "thrombosis_prediction",
     "question": "Among the male patients who have a normal level of white blood cells, how many of them have an abnormal fibrinogen level?",
     "evidence": "male patients refers to Sex = 'M'; normal level of white blood cells refers to WBC > 3.5 and WBC <9.0; abnormal fibrinogen level refers to FG < = 150 or FG > = 450; Don't compute repetitive ones.",
-    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.FG <= 150 OR T2.FG >= 450 AND T2.WBC > 3.5 AND T2.WBC < 9.0 AND T1.SEX = 'M'",
-    "difficulty": "challenging"
+    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE (T2.FG <= 150 OR T2.FG >= 450) AND T2.WBC > 3.5 AND T2.WBC < 9.0 AND T1.SEX = 'M'",
+    "difficulty": "challenging",
+    "correction": "Missing parentheses around the OR clauses in golden sql"
   },
   {
     "question_id": 1251,
     "db_id": "thrombosis_prediction",
     "question": "How many patients with an Ig G higher than normal?",
     "evidence": "Ig G higher than normal refers to IGG >= 2000; Should consider DISTINCT in the final result;",
-    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID INNER JOIN Examination AS T3 ON T3.ID = T2.ID WHERE T2.IGG >= 2000",
-    "difficulty": "simple"
+    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.IGG >= 2000",
+    "difficulty": "simple",
+    "correction": "Unnecessary INNER JOIN on examination artificially decreases the number of results."
   },
   {
     "question_id": 1252,
     "db_id": "thrombosis_prediction",
     "question": "Among the patients with a normal Ig G level, how many of them have symptoms?",
     "evidence": "normal Ig G level refers to IGG > 900 and IGG < 2000; have symptoms refers to Symptoms IS NOT NULL;",
-    "SQL": "SELECT COUNT(T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID INNER JOIN Examination AS T3 ON T3.ID = T2.ID WHERE T2.IGG BETWEEN 900 AND 2000 AND T3.Symptoms IS NOT NULL",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID INNER JOIN Examination AS T3 ON T3.ID = T2.ID WHERE T2.IGG BETWEEN 900 AND 2000 AND T3.Symptoms IS NOT NULL",
+    "difficulty": "moderate",
+    "correction": "How many patients requires counting distinct patient IDs, as there are multiple lab results per patient."
   },
   {
     "question_id": 1254,
     "db_id": "thrombosis_prediction",
     "question": "How many patients with a normal Ig A level came to the hospital after 1990/1/1?",
     "evidence": "normal Ig A level refers to IGA > 80 AND IGA < 500; came to the hospital after 1990/1/1 refers to YEAR(`First Date`) > = 1990;",
-    "SQL": "SELECT COUNT(T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.IGA BETWEEN 80 AND 500 AND  strftime('%Y',  T1.`First Date`) > '1990'",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.IGA BETWEEN 80 AND 500 AND strftime('%Y', T1.\"First Date\") >= '1990'",
+    "difficulty": "moderate",
+    "correction": "Changed golden SQL to count distinct, due to fanout from inner joins. Also changed golden SQL to do >= 1990 like the question and hint indicate."
   },
   {
     "question_id": 1255,
     "db_id": "thrombosis_prediction",
     "question": "For the patients with an abnormal Ig M level, what is the most common disease they are diagnosed with?",
     "evidence": "abnormal Ig M level refers to IGM <=40 OR IGM >= 400; most common disease refers to MAX(COUNT(Diagnosis));",
-    "SQL": "SELECT T1.Diagnosis FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.IGM NOT BETWEEN 40 AND 400 GROUP BY T1.Diagnosis ORDER BY COUNT(T1.Diagnosis) DESC LIMIT 1",
-    "difficulty": "moderate"
+    "SQL": "SELECT Diagnosis FROM (SELECT DISTINCT T1.ID, T1.Diagnosis FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.IGM <= 40 OR T2.IGM >= 400) GROUP BY Diagnosis ORDER BY COUNT(*) DESC LIMIT 1",
+    "difficulty": "moderate",
+    "correction": "Original golden SQL was counting the same diagnoses multiple times for the same patient"
   },
   {
     "question_id": 1256,
     "db_id": "thrombosis_prediction",
     "question": "How many patients with a abnormal C-reactive protein don't have their data recorded?",
     "evidence": "abnormal C-reactive protein refers to CRP ='+'; don't have data recorded refers to Description IS NULL;",
-    "SQL": "SELECT COUNT(T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE (T2.CRP = '+' ) AND T1.Description IS NULL",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE (T2.CRP = '+') AND T1.Description IS NULL",
+    "difficulty": "moderate",
+    "correction": "How many patients requires counting distinct patient IDs, as there are multiple lab results per patient."
   },
   {
     "question_id": 1257,
@@ -980,16 +1012,18 @@
     "db_id": "thrombosis_prediction",
     "question": "How many patients have a normal level of anti-ribonuclear protein and have been admitted to the hospital?",
     "evidence": "normal level of anti-ribonuclear protein refers to RNP = '-', '+-'; And'-' means 'negative'; '+-' refers to '0'; admitted to the hospital refers to Admission = '+'; Should consider DISTINCT in the final result;",
-    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.RNP = 'negative' OR T2.RNP = '0' AND T1.Admission = '+'",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE (T2.RNP = 'negative' OR T2.RNP = '0') AND T1.Admission = '+'",
+    "difficulty": "moderate",
+    "correction": "Golden SQL has missing parentheses around OR condition."
   },
   {
     "question_id": 1267,
     "db_id": "thrombosis_prediction",
     "question": "Among the patients with normal anti-SM, how many of them does not have thrombosis?",
     "evidence": "normal anti-SM refers to SM IN('-', '+-'); SM = 'negative' means '-'; SM = '0' means '+-'; SM = '1' means '+'; does not have thrombosis refers to Thrombosis = 0;",
-    "SQL": "SELECT COUNT(T1.ID) FROM Examination AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.SM IN ('negative','0') AND T1.Thrombosis = 0",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Examination AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.SM IN ('negative','0') AND T1.Thrombosis = 0",
+    "difficulty": "moderate",
+    "correction": "How many patients requires counting distinct patient IDs, as there are multiple lab results per patient."
   },
   {
     "question_id": 1270,
@@ -1003,9 +1037,10 @@
     "question_id": 1275,
     "db_id": "thrombosis_prediction",
     "question": "Among the patients who has a normal level of anti-centromere and a normal level of anti-SSB, how many of them are male?",
-    "evidence": "normal level of anti-centromere refers to CENTROMEA IN('-', '+-'); normal level of anti-SSB refers to SSB IN('-', '+-'); male refers to Sex = 'M'; Should consider DISTINCT in the final result;",
+    "evidence": "normal level of anti-centromere refers to CENTROMEA IN('negative', '0'); normal level of anti-SSB refers to SSB IN('-', '+-'); male refers to Sex = 'M'; Should consider DISTINCT in the final result;",
     "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID WHERE T2.CENTROMEA IN ('negative', '0') AND T2.SSB IN ('negative', '0') AND T1.SEX = 'M'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Evidence is incorrect, CENTROMEA is negative or 0"
   },
   {
     "question_id": 1281,
@@ -1020,8 +1055,9 @@
     "db_id": "thrombosis_prediction",
     "question": "For the patients with a normal range of creatinine phosphokinase, how many of them have a positive measure of degree of coagulation?",
     "evidence": "normal range of creatinine phosphokinase refers to CPK < 250; positive measure of degree of coagulation refers to KCT = '+' or RVVT = '+' or LAC = '+' ;",
-    "SQL": "SELECT COUNT(T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID INNER JOIN Examination AS T3 ON T1.ID = T3.ID WHERE T2.CPK < 250 AND (T3.KCT = '+' OR T3.RVVT = '+' OR T3.LAC = '+')",
-    "difficulty": "challenging"
+    "SQL": "SELECT COUNT(DISTINCT T1.ID) FROM Patient AS T1 INNER JOIN Laboratory AS T2 ON T1.ID = T2.ID INNER JOIN Examination AS T3 ON T1.ID = T3.ID WHERE T2.CPK < 250 AND (T3.KCT = '+' OR T3.RVVT = '+' OR T3.LAC = '+')",
+    "difficulty": "challenging",
+    "correction": "How many patients requires counting distinct patient IDs, as there are multiple lab results per patient."
   },
   {
     "question_id": 1025,
@@ -1092,8 +1128,9 @@
     "db_id": "european_football_2",
     "question": "Calculate the percentage of players who prefer left foot, who were born between 1987 and 1992.",
     "evidence": "players who prefer left foot refers to preferred_foot = 'left'; percentage of players who prefer left foot = DIVIDE(MULTIPLY((SUM(preferred_foot = 'left'), 100)), COUNT(player_fifa_api_id)); born between 1987 and 1992 refers to YEAR(birthday) BETWEEN '1987' AND '1992';",
-    "SQL": "SELECT CAST(COUNT(CASE WHEN t2.preferred_foot = 'left' THEN t1.id ELSE NULL END) AS REAL) * 100 / COUNT(t1.id) percent FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id WHERE SUBSTR(t1.birthday, 1, 4) BETWEEN '1987' AND '1992'",
-    "difficulty": "challenging"
+    "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN t2.preferred_foot = 'left' THEN t1.id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT t1.id) percent FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id WHERE SUBSTR(t1.birthday, 1, 4) BETWEEN '1987' AND '1992'",
+    "difficulty": "challenging",
+    "correction": "Percentage of players requires deduplicating / distinctness by player ID."
   },
   {
     "question_id": 1039,
@@ -1146,10 +1183,11 @@
   {
     "question_id": 1058,
     "db_id": "european_football_2",
-    "question": "Who has the highest average finishing rate between the highest and shortest football player?",
+    "question": "Who has the highest average finishing rate between the highest and shortest football player? Output either 'highest' or 'shortest' as the answer.",
     "evidence": "finishing rate refers to finishing; highest average finishing rate = MAX(AVG(finishing)); highest football player refers to MAX(height); shortest football player refers to MIN(height);",
-    "SQL": "SELECT A FROM ( SELECT AVG(finishing) result, 'Max' A FROM Player AS T1 INNER JOIN Player_Attributes AS T2 ON T1.player_api_id = T2.player_api_id WHERE T1.height = ( SELECT MAX(height) FROM Player ) UNION SELECT AVG(finishing) result, 'Min' A FROM Player AS T1 INNER JOIN Player_Attributes AS T2 ON T1.player_api_id = T2.player_api_id WHERE T1.height = ( SELECT MIN(height) FROM Player ) ) ORDER BY result DESC LIMIT 1",
-    "difficulty": "challenging"
+    "SQL": "SELECT A FROM (SELECT AVG(finishing) result, 'highest' A FROM Player AS T1 INNER JOIN Player_Attributes AS T2 ON T1.player_api_id = T2.player_api_id WHERE T1.height = (SELECT MAX(height) FROM Player) UNION SELECT AVG(finishing) result, 'shortest' A FROM Player AS T1 INNER JOIN Player_Attributes AS T2 ON T1.player_api_id = T2.player_api_id WHERE T1.height = (SELECT MIN(height) FROM Player)) tmp ORDER BY result DESC LIMIT 1",
+    "difficulty": "challenging",
+    "correction": "Original SQL outputs 'Max' or 'Min' which is not specified in the question. Clarified question + SQL to specify 'highest' vs. 'lowest'."
   },
   {
     "question_id": 1068,
@@ -1218,18 +1256,20 @@
   {
     "question_id": 1092,
     "db_id": "european_football_2",
-    "question": "Give the name of the league had the most matches in the 2008/2009 season?",
+    "question": "Give all of the names of the league had the most matches in the 2008/2009 season?",
     "evidence": "league that had the most matches in the 2008/2009 season refers to MAX(league_name WHERE season = '2008/2009');",
     "SQL": "SELECT t1.name FROM League AS t1 JOIN Match AS t2 ON t1.id = t2.league_id WHERE t2.season = '2008/2009' GROUP BY t1.name HAVING COUNT(t2.id) = (SELECT MAX(match_count) FROM (SELECT COUNT(t2.id) AS match_count FROM Match AS t2 WHERE t2.season = '2008/2009' GROUP BY t2.league_id))",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "The golden SQL outputs all leagues that have the most matches, not just one."
   },
   {
     "question_id": 1094,
     "db_id": "european_football_2",
     "question": "How much higher in percentage is Ariel Borysiuk's overall rating than that of Paulin Puel?",
-    "evidence": "how much higher in percentage = MULTIPLY(DIVIDE(SUBTRACT(overall_rating WHERE player_name = 'Ariel Borysiuk', overall_rating WHERE player_name = 'Paulin Puel'), overall_rating WHERE player_name = 'Paulin Puel'), 100);",
+    "evidence": "how much higher in percentage = MULTIPLY(DIVIDE(SUBTRACT(overall_rating WHERE player_name = 'Ariel Borysiuk', overall_rating WHERE player_name = 'Paulin Puel'), overall_rating WHERE player_name = 'Paulin Puel'), 100); overall_rating = SUM(overall_rating)",
     "SQL": "SELECT (SUM(CASE WHEN t1.player_name = 'Ariel Borysiuk' THEN t2.overall_rating ELSE 0 END) * 1.0 - SUM(CASE WHEN t1.player_name = 'Paulin Puel' THEN t2.overall_rating ELSE 0 END)) * 100 / SUM(CASE WHEN t1.player_name = 'Paulin Puel' THEN t2.overall_rating ELSE 0 END) FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "It's ambiguous what the overall rating should be, as there are multiple overall_ratings per player. The golden SQL has SUM(overall_rating) so amend the evidence to be consistent."
   },
   {
     "question_id": 1096,
@@ -1276,8 +1316,9 @@
     "db_id": "european_football_2",
     "question": "When was the first time did Kevin Constant have his highest crossing score? Give the date.",
     "evidence": "Kevin Constant refers to player_name = 'Kevin Constant'; highest crossing score refers to MAX(crossing)",
-    "SQL": "SELECT `date` FROM ( SELECT t2.crossing, t2.`date` FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_fifa_api_id = t2.player_fifa_api_id WHERE t1.player_name = 'Kevin Constant' ORDER BY t2.crossing DESC) ORDER BY date DESC LIMIT 1",
-    "difficulty": "moderate"
+    "SQL": " SELECT t2.`date` FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_fifa_api_id = t2.player_fifa_api_id WHERE t1.player_name = 'Kevin Constant' ORDER BY t2.crossing DESC, t2.`date` ASC LIMIT 1",
+    "difficulty": "moderate",
+    "correction": "Golden SQL actually just selects the first date out of all attribute rows linked to Kevin Constant because the outer query does not also re-order by crossing score. Instead, it's better to apply ORDER BY crossing DESC, date ASC"
   },
   {
     "question_id": 1110,
@@ -1362,10 +1403,11 @@
   {
     "question_id": 1135,
     "db_id": "european_football_2",
-    "question": "Please provide top four football players' IDs who are among the lowest potential players and prefer to use the right foot when attacking.",
+    "question": "Please provide the four football players' IDs with the lowest potential who prefer to use the right foot when attacking.",
     "evidence": "lowest potential players refers to MIN(potential); prefer to use the right foot when attacking refers to preferred_foot = 'right'",
     "SQL": "SELECT id FROM Player_Attributes WHERE preferred_foot = 'right' ORDER BY potential ASC LIMIT 4",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "The SQL only orders by potential (among players who prefer the right foot), so the question should be clarified to be consistent with it."
   },
   {
     "question_id": 1136,
@@ -1386,18 +1428,20 @@
   {
     "question_id": 1141,
     "db_id": "european_football_2",
-    "question": "Does the KSV Cercle Brugge team have a slow, balanced or fast speed class?",
+    "question": "What are the slow, balanced or fast speed classes for the KSV Cercle Brugge team?",
     "evidence": "KSV Cercle Brugge refers to team_long_name = 'KSV Cercle Brugge'; speed class refers to buildUpPlaySpeedClass",
     "SQL": "SELECT DISTINCT t1.buildUpPlaySpeedClass FROM Team_Attributes AS t1 INNER JOIN Team AS t2 ON t1.team_api_id = t2.team_api_id WHERE t2.team_long_name = 'KSV Cercle Brugge'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "The question made it sound like it wanted 1 answer when there are multiple, so amended question to not seem like it just wants one."
   },
   {
     "question_id": 1144,
     "db_id": "european_football_2",
-    "question": "Please state the finishing rate and curve score of the player who has the heaviest weight.",
+    "question": "Please state the finishing rates and curve scores of the players who have the heaviest weight.",
     "evidence": "finishing rate refer to finishing; curve score refer to curve; heaviest weight refers to MAX(weight)",
-    "SQL": "SELECT id, finishing, curve FROM Player_Attributes WHERE player_api_id = ( SELECT player_api_id FROM Player ORDER BY weight DESC LIMIT 1 ) LIMIT 1",
-    "difficulty": "simple"
+    "SQL": "SELECT finishing, curve FROM Player_Attributes WHERE player_api_id IN (SELECT player_api_id FROM Player WHERE weight = (SELECT MAX(weight) from Player))",
+    "difficulty": "simple",
+    "correction": "There were two players with the max weight, so changed the question a bit to avoid the ambiguity (it previously selected the heaviest with a LIMIT 1, but that could be non-deterministic) Also got rid of the player attribute id that it had selected in the golden SQL"
   },
   {
     "question_id": 1145,
@@ -1427,9 +1471,10 @@
     "question_id": 1148,
     "db_id": "european_football_2",
     "question": "What is the percentage of players that are under 180 cm who have an overall strength of more than 70?",
-    "evidence": "percentage refers to DIVIDE(COUNT(height < 180 AND overall_rating > 70),COUNT(id)) * 100",
-    "SQL": "SELECT CAST(COUNT(CASE WHEN t2.overall_rating > 70  AND t1.height < 180 THEN t1.id ELSE NULL END) AS REAL) * 100 / COUNT(t1.id) percent FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id ",
-    "difficulty": "moderate"
+    "evidence": "percentage refers to DIVIDE(COUNT(height < 180 AND overall_rating > 70),COUNT(height < 180)) * 100",
+    "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN t2.overall_rating > 70 AND t1.height < 180 THEN t1.id END) AS REAL) * 100 / COUNT(DISTINCT t1.id) percent FROM Player AS t1 INNER JOIN Player_Attributes AS t2 ON t1.player_api_id = t2.player_api_id WHERE t1.height < 180",
+    "difficulty": "moderate",
+    "correction": "Amended evidence and golden SQL to more closely match the question. \"Percentage of players\" requires COUNT DISTINCTs to avoid double-counting players with multiple attribute joins."
   },
   {
     "question_id": 846,
@@ -1444,8 +1489,9 @@
     "db_id": "formula_1",
     "question": "What is the surname of the driver with the best lap time in race number 19 in the second qualifying period?",
     "evidence": "race number refers to raceId; second qualifying period refers to q2; best lap time refers to MIN(q2);",
-    "SQL": "SELECT T2.surname FROM qualifying AS T1 INNER JOIN drivers AS T2 ON T2.driverId = T1.driverId WHERE T1.raceId = 19 ORDER BY T1.q2 ASC LIMIT 1",
-    "difficulty": "simple"
+    "SQL": "SELECT T2.surname FROM qualifying AS T1 INNER JOIN drivers AS T2 ON T2.driverId = T1.driverId WHERE T1.raceId = 19 ORDER BY T1.q2 ASC NULLS LAST LIMIT 1",
+    "difficulty": "simple",
+    "correction": "Null lap times always come first, but \"best lap time\" should not include nulls."
   },
   {
     "question_id": 850,
@@ -1498,7 +1544,7 @@
   {
     "question_id": 865,
     "db_id": "formula_1",
-    "question": "For all the drivers who finished the game in race No. 592, who is the oldest?",
+    "question": "For all the drivers who finished the game in race No. 592, who is the oldest? Select the forename and surname.",
     "evidence": "drivers who finished the race refers to time is not empty (i.e. time IS NOT NULL); race number refers to raceId; date of birth refers to drivers.dob; The larger the birthday value, the younger the person is, and vice versa;",
     "SQL": "SELECT T1.forename, T1.surname FROM drivers AS T1 INNER JOIN results AS T2 ON T2.driverId = T1.driverId WHERE T2.raceId = 592 AND T2.time IS NOT NULL AND T1.dob IS NOT NULL ORDER BY T1.dob ASC LIMIT 1",
     "difficulty": "moderate"
@@ -1506,7 +1552,7 @@
   {
     "question_id": 866,
     "db_id": "formula_1",
-    "question": "Who was the player that got the lap time of 0:01:27 in the race No. 161? Show his introduction website.",
+    "question": "Who was the player that got the lap time of 0:01:27 in the race No. 161? Show his forename, surname, and introduction website.",
     "evidence": "player and driver are synonyms; the lap time of 0:0M:SS refers to lapTime.time LIKE 'M:SS%';race number refers to raceId; introduction website of the drivers refers to url;",
     "SQL": "SELECT DISTINCT T2.forename, T2.surname, T2.url FROM lapTimes AS T1 INNER JOIN drivers AS T2 ON T2.driverId = T1.driverId WHERE T1.raceId = 161 AND T1.time LIKE '1:27%'",
     "difficulty": "moderate"
@@ -1556,8 +1602,9 @@
     "db_id": "formula_1",
     "question": "For the driver who set the fastest lap speed, what is his nationality?",
     "evidence": "the fastest lap speed refers to (MAX) fastestLapSpeed;",
-    "SQL": "SELECT T1.nationality FROM drivers AS T1 INNER JOIN results AS T2 ON T2.driverId = T1.driverId ORDER BY T2.fastestLapSpeed DESC LIMIT 1",
-    "difficulty": "moderate"
+    "SQL": "SELECT T1.nationality FROM drivers AS T1 INNER JOIN results AS T2 ON T2.driverId = T1.driverId ORDER BY CAST(T2.fastestLapSpeed AS REAL) DESC LIMIT 1",
+    "difficulty": "moderate",
+    "correction": "LapSpeed comparison should be numerical and not based on string"
   },
   {
     "question_id": 880,
@@ -1570,7 +1617,7 @@
   {
     "question_id": 881,
     "db_id": "formula_1",
-    "question": "For the drivers who took part in the race in 1983/7/16, what's their race completion rate?",
+    "question": "For the drivers who took part in the race in 1983/7/16, what's their race completion rate? Multiply the completion rate ratio by 100 to get a percentage.",
     "evidence": "DIVIDE(COUNT(driverid when time has value ), (COUNT(driverid )) as percentage; in 1983/7/16 refers to when date = '1983-07-16'",
     "SQL": "SELECT CAST(COUNT(CASE WHEN T2.time IS NOT NULL THEN T2.driverId END) AS REAL) * 100 / COUNT(T2.driverId) FROM races AS T1 INNER JOIN results AS T2 ON T2.raceId = T1.raceId WHERE T1.date = '1983-07-16'",
     "difficulty": "moderate"
@@ -1586,18 +1633,20 @@
   {
     "question_id": 892,
     "db_id": "formula_1",
-    "question": "State the driver with the most points scored. Find his full name with that points.",
+    "question": "State the driver with the most points scored. Find his full name with his points.",
     "evidence": "the most points scored refers to max(points); Full name of the driver refers to drivers.forename and drivers.surname;",
     "SQL": "SELECT T3.forename, T3.surname, T2.points FROM races AS T1 INNER JOIN driverStandings AS T2 ON T2.raceId = T1.raceId INNER JOIN drivers AS T3 ON T3.driverId = T2.driverId ORDER BY T2.points DESC LIMIT 1",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Small typo that changes the potential meaning of the question"
   },
   {
     "question_id": 894,
     "db_id": "formula_1",
-    "question": "What is the best lap time recorded? List the driver and race with such recorded lap time.",
+    "question": "What is the best lap time recorded? List the recoded lap time, driver, and race.",
     "evidence": "the best lap time refers to min(milliseconds); List the driver refers to drivers.forename and drivers.surname; List the race refers to races.name",
     "SQL": "SELECT T2.milliseconds, T1.forename, T1.surname, T3.name FROM drivers AS T1 INNER JOIN lapTimes AS T2 ON T1.driverId = T2.driverId INNER JOIN races AS T3 ON T2.raceId = T3.raceId ORDER BY T2.milliseconds ASC LIMIT 1",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "rephrased slightly for clarity"
   },
   {
     "question_id": 895,
@@ -1611,9 +1660,10 @@
     "question_id": 896,
     "db_id": "formula_1",
     "question": "Calculate the percentage whereby Hamilton was not at the 1st track of the the f1 circuit since 2010.",
-    "evidence": "percentage = DIVIDE(COUNT(raceId) where surname = 'Hamilton' and position>1), (COUNT(raceId) where surname = 'Hamilton'); since 2010 refers to year >= 2010",
+    "evidence": "percentage = DIVIDE(COUNT(raceId) where surname = 'Hamilton' and position>1), (COUNT(raceId) where surname = 'Hamilton'); since 2010 refers to year >= 2010. position refers to driverStandings.position",
     "SQL": "SELECT CAST(COUNT(CASE WHEN T2.position <> 1 THEN T2.position END) AS REAL) * 100 / COUNT(T2.driverStandingsId) FROM races AS T1 INNER JOIN driverStandings AS T2 ON T2.raceId = T1.raceId INNER JOIN drivers AS T3 ON T3.driverId = T2.driverId WHERE T3.surname = 'Hamilton' AND T1.year >= 2010",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "driverStandings.position and results.position both seem valid, but lead to different results. Corrected evidence to specify"
   },
   {
     "question_id": 897,
@@ -1626,7 +1676,7 @@
   {
     "question_id": 898,
     "db_id": "formula_1",
-    "question": "How old is the youngest Japanese driver? What is his name?",
+    "question": "How old is the youngest Japanese driver? What is his name? Select the time, forename, surname as three columns.",
     "evidence": "date of birth refers to drivers.dob; The larger the birthday value, the younger the person is, and vice versa; Japanese refers to nationality = 'Japanese'; age = YEAR(CURRENT_TIMESTAMP) - YEAR(dob);",
     "SQL": "SELECT STRFTIME('%Y', CURRENT_TIMESTAMP) - STRFTIME('%Y', dob), forename , surname FROM drivers WHERE nationality = 'Japanese' ORDER BY dob DESC LIMIT 1",
     "difficulty": "simple"
@@ -1643,17 +1693,19 @@
     "question_id": 902,
     "db_id": "formula_1",
     "question": "Which race was Alex Yoong in when he was in track number less than 20?",
-    "evidence": "Alex Yoong refers to the full name of the driver; Full name of the driver refers to drivers.forename and drivers.surname;track number less than 10 refers to position < 20",
+    "evidence": "Alex Yoong refers to the full name of the driver; Full name of the driver refers to drivers.forename and drivers.surname;track number less than 10 refers to driverStandings.position < 20",
     "SQL": "SELECT T1.name FROM races AS T1 INNER JOIN driverStandings AS T2 ON T2.raceId = T1.raceId INNER JOIN drivers AS T3 ON T3.driverId = T2.driverId WHERE T3.forename = 'Alex' AND T3.surname = 'Yoong' AND T2.position < 20",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "driverStandings.position and results.position both seem valid, but lead to different results. Corrected evidence to specify"
   },
   {
     "question_id": 904,
     "db_id": "formula_1",
     "question": "State the race and year of race in which Michael Schumacher had his fastest lap.",
-    "evidence": "fastest lap refers to min(milliseconds); Alex Yoong refers to the full name of the driver; Full name of the driver refers to drivers.forename and drivers.surname;",
+    "evidence": "fastest lap refers to min(milliseconds); Michael Schumacher refers to the full name of the driver; Full name of the driver refers to drivers.forename and drivers.surname;",
     "SQL": "SELECT T1.name, T1.year FROM races AS T1 INNER JOIN lapTimes AS T2 ON T2.raceId = T1.raceId INNER JOIN drivers AS T3 ON T3.driverId = T2.driverId WHERE T3.forename = 'Michael' AND T3.surname = 'Schumacher' ORDER BY T2.milliseconds ASC LIMIT 1",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Original evidence incorrectly cites \"Alex Yoong\""
   },
   {
     "question_id": 906,
@@ -1690,7 +1742,7 @@
   {
     "question_id": 915,
     "db_id": "formula_1",
-    "question": "Which country is the oldest driver from?",
+    "question": "What is the nationality of the oldest driver?",
     "evidence": "date of birth refers to drivers.dob; The larger the birthday value, the younger the person is, and vice versa;",
     "SQL": "SELECT nationality FROM drivers WHERE dob IS NOT NULL ORDER BY dob ASC LIMIT 1",
     "difficulty": "simple"
@@ -1698,7 +1750,7 @@
   {
     "question_id": 928,
     "db_id": "formula_1",
-    "question": "Which driver ranked the first in the Canadian Grand Prix in 2007? Please give his reference name.",
+    "question": "Which driver ranked the first in the Canadian Grand Prix in 2007? Please give his forename, surname, and reference name.",
     "evidence": "reference name refers to driverRef; Canadian Grand Prix refers to races.name = 'Canadian Grand Prix';",
     "SQL": "SELECT T3.forename, T3.surname, T3.driverRef FROM races AS T1 INNER JOIN results AS T2 ON T2.raceId = T1.raceId INNER JOIN drivers AS T3 ON T3.driverId = T2.driverId WHERE T1.name = 'Canadian Grand Prix' AND T2.rank = 1 AND T1.year = 2007",
     "difficulty": "moderate"
@@ -1706,7 +1758,7 @@
   {
     "question_id": 930,
     "db_id": "formula_1",
-    "question": "In which Formula_1 race did Lewis Hamilton rank the highest?",
+    "question": "In which Formula_1 races did Lewis Hamilton rank the highest? Output all the races.",
     "evidence": "rank the highest refers to min(rank); Lewis Hamilton refers to the full name of the driver; Full name of the driver refers to drivers.forename and drivers.surname;",
     "SQL": "SELECT name FROM races WHERE raceId IN ( SELECT raceId FROM results WHERE rank = 1 AND driverId = ( SELECT driverId FROM drivers WHERE forename = 'Lewis' AND surname = 'Hamilton' ) )",
     "difficulty": "simple"
@@ -1771,17 +1823,19 @@
     "question_id": 950,
     "db_id": "formula_1",
     "question": "Please list the constructor names with 0 points at race 291.",
-    "evidence": "race at 291 refers to raceID = 291;",
+    "evidence": "race at 291 refers to raceID = 291; constructor refers to constructorStandings",
     "SQL": "SELECT T2.name FROM constructorStandings AS T1 INNER JOIN constructors AS T2 on T1.constructorId = T2.constructorId WHERE T1.points = 0 AND T1.raceId = 291",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "Both constructorStandings and constructorResults appear to be valid; specify the standings"
   },
   {
     "question_id": 951,
     "db_id": "formula_1",
     "question": "How many Japanese constructors have 0 points in 2 races?",
     "evidence": "2 races refers to COUNT(raceID) = 2; Japanese refers to constructors.nationality = 'Japanese';",
-    "SQL": "SELECT COUNT(T1.raceId) FROM constructorStandings AS T1 INNER JOIN constructors AS T2 on T1.constructorId = T2.constructorId WHERE T1.points = 0 AND T2.nationality = 'Japanese' GROUP BY T1.constructorId HAVING COUNT(raceId) = 2",
-    "difficulty": "simple"
+    "SQL": "SELECT COUNT(DISTINCT T1.constructorId) FROM constructorStandings AS T1 INNER JOIN constructors AS T2 on T1.constructorId = T2.constructorId WHERE T1.points = 0 AND T2.nationality = 'Japanese' GROUP BY T1.constructorId HAVING COUNT(raceId) = 2",
+    "difficulty": "simple",
+    "correction": "Because of the duplication in the joins, COUNT(DISTINCT) is necessary for counting constructors."
   },
   {
     "question_id": 954,
@@ -1818,18 +1872,20 @@
   {
     "question_id": 962,
     "db_id": "formula_1",
-    "question": "From 2000 to 2005, what percentage of drivers who were born before 1985 and the lap numbers were over 50?",
+    "question": "In the races from 2000 to 2005, what percentage of drivers were born before 1985 and completed 50 laps?",
     "evidence": "born before 1985 refers to year(dob)<1985; in 2000 to 2005 refers to year between 2000 and 2005; percentage = Divide(COUNT(driverId where year (dob) <1985 and laps >50),COUNT(DriverID where year between 2000 and 2005) *100;",
     "SQL": "SELECT CAST(SUM(IIF(STRFTIME('%Y', T3.dob) < '1985' AND T1.laps > 50, 1, 0)) AS REAL) * 100 / COUNT(*) FROM results AS T1 INNER JOIN races AS T2 on T1.raceId = T2.raceId INNER JOIN drivers AS T3 on T1.driverId = T3.driverId WHERE T2.year BETWEEN 2000 AND 2005",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Question says 'lap number' which is incorrect."
   },
   {
     "question_id": 963,
     "db_id": "formula_1",
     "question": "How many French drivers who obtain the laptime less than 02:00.00?",
     "evidence": "lap time less than 02:00.00 refers to seconds < 120;",
-    "SQL": "SELECT COUNT(T1.driverId) FROM drivers AS T1 INNER JOIN lapTimes AS T2 on T1.driverId = T2.driverId WHERE T1.nationality = 'French' AND (CAST(SUBSTR(T2.time, 1, 2) AS INTEGER) * 60 + CAST(SUBSTR(T2.time, 4, 2) AS INTEGER) + CAST(SUBSTR(T2.time, 7, 2) AS REAL) / 1000) < 120",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(DISTINCT T1.driverId) FROM drivers AS T1 INNER JOIN lapTimes AS T2 on T1.driverId = T2.driverId WHERE T1.nationality = 'French' AND (CAST(SUBSTR(T2.time, 1, 2) AS INTEGER) * 60 + CAST(SUBSTR(T2.time, 4, 2) AS INTEGER) + CAST(SUBSTR(T2.time, 7, 2) AS REAL) / 1000) < 120",
+    "difficulty": "moderate",
+    "correction": "How many drivers requires deduplication on driverId, as there are multiple lap times per driver."
   },
   {
     "question_id": 964,
@@ -1842,10 +1898,11 @@
   {
     "question_id": 967,
     "db_id": "formula_1",
-    "question": "State code numbers of top 3 yougest drivers. How many Netherlandic drivers among them?",
+    "question": "How many Netherlandic drivers are among the 3 youngest drivers?",
     "evidence": "youngest driver refers to Max (year(dob)); Netherlandic and Dutch refer to the same country",
     "SQL": "SELECT COUNT(*) FROM ( SELECT T1.nationality FROM drivers AS T1 ORDER BY JULIANDAY(T1.dob) DESC LIMIT 3) AS T3 WHERE T3.nationality = 'Dutch'",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "Question asks for code numbers, but SQL does not include them."
   },
   {
     "question_id": 971,
@@ -1898,10 +1955,11 @@
   {
     "question_id": 989,
     "db_id": "formula_1",
-    "question": "Who is the champion of the Canadian Grand Prix in 2008? Indicate his finish time.",
+    "question": "What was the finish time of the champion of the Canadian Grand Prix in 2008?",
     "evidence": "Only the time of the champion shows in the format of \"hour: minutes: seconds.millionsecond\";",
     "SQL": "SELECT T1.time FROM results AS T1 INNER JOIN races AS T2 ON T1.raceId = T2.raceId WHERE T2.name = 'Canadian Grand Prix' AND T2.year = 2008 AND T1.time LIKE '_:%:__.___'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Question would suggest that the name should be returned."
   },
   {
     "question_id": 990,
@@ -1954,18 +2012,20 @@
   {
     "question_id": 1011,
     "db_id": "formula_1",
-    "question": "Which top 20 driver created the shortest lap time ever record in a Formula_1 race? Please give them full names.",
+    "question": "List the full names of the top 20 drivers, ranked by their shortest lap time ever record in a Formula_1 race.",
     "evidence": "shortest lap time refers to MIN(time); the time format for the shortest lap time is 'MM:SS.mmm' or 'M:SS.mmm'; full name of the driver refers to forename, surname",
     "SQL": "WITH lap_times_in_seconds AS (SELECT driverId, (CASE WHEN SUBSTR(time, 1, INSTR(time, ':') - 1) <> '' THEN CAST(SUBSTR(time, 1, INSTR(time, ':') - 1) AS REAL) * 60 ELSE 0 END + CASE WHEN SUBSTR(time, INSTR(time, ':') + 1, INSTR(time, '.') - INSTR(time, ':') - 1) <> '' THEN CAST(SUBSTR(time, INSTR(time, ':') + 1, INSTR(time, '.') - INSTR(time, ':') - 1) AS REAL) ELSE 0 END + CASE WHEN SUBSTR(time, INSTR(time, '.') + 1) <> '' THEN CAST(SUBSTR(time, INSTR(time, '.') + 1) AS REAL) / 1000 ELSE 0 END) AS time_in_seconds FROM lapTimes) SELECT T2.forename, T2.surname, T1.driverId FROM (SELECT driverId, MIN(time_in_seconds) AS min_time_in_seconds FROM lap_times_in_seconds GROUP BY driverId) AS T1 INNER JOIN drivers AS T2 ON T1.driverId = T2.driverId ORDER BY T1.min_time_in_seconds ASC LIMIT 20",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "The original question needs to be rephrased to match the true SQL (gets top 20, not 'which top 20 driver')"
   },
   {
     "question_id": 1014,
     "db_id": "formula_1",
     "question": "Please list the lap records for the circuits in Italy.",
-    "evidence": "lap record means the fastest time recorded which refers to time",
-    "SQL": "WITH fastest_lap_times AS (SELECT T1.raceId, T1.FastestLapTime, (CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + (CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + (CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) as time_in_seconds FROM results AS T1 WHERE T1.FastestLapTime IS NOT NULL ) SELECT T1.FastestLapTime as lap_record FROM results AS T1 INNER JOIN races AS T2 on T1.raceId = T2.raceId INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId INNER JOIN (SELECT MIN(fastest_lap_times.time_in_seconds) as min_time_in_seconds FROM fastest_lap_times INNER JOIN races AS T2 on fastest_lap_times.raceId = T2.raceId INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId WHERE T3.country = 'Italy' ) AS T4 ON (CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + (CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + (CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) = T4.min_time_in_seconds LIMIT 1",
-    "difficulty": "challenging"
+    "evidence": "lap record means the fastest time recorded which refers to FastestLapTime",
+    "SQL": "WITH fastest_lap_times AS (SELECT T1.raceId, T1.FastestLapTime, (CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + (CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + (CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) as time_in_seconds FROM results AS T1 WHERE T1.FastestLapTime IS NOT NULL) SELECT T1.FastestLapTime as lap_record FROM results AS T1 INNER JOIN races AS T2 on T1.raceId = T2.raceId INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId INNER JOIN (SELECT MIN(fastest_lap_times.time_in_seconds) as min_time_in_seconds FROM fastest_lap_times INNER JOIN races AS T2 on fastest_lap_times.raceId = T2.raceId INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId WHERE T3.country = 'Italy') AS T4 ON (CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + (CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + (CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) = T4.min_time_in_seconds",
+    "difficulty": "challenging",
+    "correction": "The LIMIT 1 does not match the 'Please list' question, and the hint should refer to 'FastestLapTime'."
   },
   {
     "question_id": 719,
@@ -2002,10 +2062,11 @@
   {
     "question_id": 728,
     "db_id": "superhero",
-    "question": "Rank superheroes from Marvel Comics by their eye color popularity, starting with the most common color.",
+    "question": "List the most common eye colors among superheroes from Marvel Comics, along with their ranks.",
     "evidence": "the superheroes from Marvel Comics refers to publisher_name = 'Marvel Comics'; most common color refers to COUNT(superhero.id) DESC;",
     "SQL": "SELECT colour.colour AS EyeColor, COUNT(superhero.id) AS Count, RANK() OVER (ORDER BY COUNT(superhero.id) DESC) AS PopularityRank FROM superhero INNER JOIN colour ON superhero.eye_colour_id = colour.id INNER JOIN publisher ON superhero.publisher_id = publisher.id WHERE publisher.publisher_name = 'Marvel Comics' GROUP BY colour.colour",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "It's quite ambiguous what columns are desired in the output. Rephrased for clarity"
   },
   {
     "question_id": 730,
@@ -2076,8 +2137,9 @@
     "db_id": "superhero",
     "question": "What is the percentage of superheroes who act in their own self-interest or make decisions based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics.",
     "evidence": "published by Marvel Comics refers to publisher_name = 'Marvel Comics'; superheroes who act in their own self-interest or make decisions based on their own moral code refers to alignment = 'Bad'; calculation = MULTIPLY(DIVIDE(SUM(alignment = 'Bad); count(id)), 100)",
-    "SQL": "SELECT (CAST(COUNT(*) AS REAL) * 100 / (SELECT COUNT(*) FROM superhero)), CAST(SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) AS REAL) FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id INNER JOIN alignment AS T3 ON T3.id = T1.alignment_id WHERE T3.alignment = 'Bad'",
-    "difficulty": "challenging"
+    "SQL": "SELECT (CAST(COUNT(*) AS REAL) * 100 / (SELECT COUNT(*) FROM superhero)), SUM(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE 0 END) FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id INNER JOIN alignment AS T3 ON T3.id = T1.alignment_id WHERE T3.alignment = 'Bad'",
+    "difficulty": "challenging",
+    "correction": "Removed unnecessary REAL cast"
   },
   {
     "question_id": 744,
@@ -2114,10 +2176,11 @@
   {
     "question_id": 751,
     "db_id": "superhero",
-    "question": "List down at least five superpowers of male superheroes.",
+    "question": "List down the superpowers of male superheroes.",
     "evidence": "male refers to gender = 'Male'; superpowers refers to power_name;",
-    "SQL": "SELECT T3.power_name FROM superhero AS T1 INNER JOIN hero_power AS T2 ON T1.id = T2.hero_id INNER JOIN superpower AS T3 ON T3.id = T2.power_id INNER JOIN gender AS T4 ON T4.id = T1.gender_id WHERE T4.gender = 'Male' LIMIT 5",
-    "difficulty": "moderate"
+    "SQL": "SELECT T3.power_name FROM superhero AS T1 INNER JOIN hero_power AS T2 ON T1.id = T2.hero_id INNER JOIN superpower AS T3 ON T3.id = T2.power_id INNER JOIN gender AS T4 ON T4.id = T1.gender_id WHERE T4.gender = 'Male'",
+    "difficulty": "moderate",
+    "correction": "At least five and LIMIT 5 are different. Also, it's ambiguous what ordering to use when there are more than 5 superpowers. It's probably better to drop the LIMIT in this case. (and remove the \"at least five\" part.)"
   },
   {
     "question_id": 753,
@@ -2251,9 +2314,10 @@
     "question_id": 788,
     "db_id": "superhero",
     "question": "How many percent of female heroes were published by Marvel Comics?",
-    "evidence": "percent = MULTIPLY(DIVIDE(SUM(gender = 'Female' WHERE publisher_name = 'Marvel Comics'), COUNT(publisher_name = 'Marvel Comics')), 100); female heroes refers to gender = 'Female'; Marvel Comics refers to publisher_name = 'Marvel Comics';",
+    "evidence": "percent = MULTIPLY(DIVIDE(COUNT(gender = 'Female' AND publisher_name = 'Marvel Comics'), COUNT(gender = 'Female')), 100); female heroes refers to gender = 'Female'; Marvel Comics refers to publisher_name = 'Marvel Comics';",
     "SQL": "SELECT CAST(COUNT(CASE WHEN T3.gender = 'Female' AND T2.publisher_name = 'Marvel Comics' THEN 1 ELSE NULL END) AS REAL) / COUNT(CASE WHEN T2.publisher_name = 'Marvel Comics' THEN 1 ELSE NULL END) * 100 FROM superhero AS T1 INNER JOIN publisher AS T2 ON T1.publisher_id = T2.id INNER JOIN gender AS T3 ON T1.gender_id = T3.id",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Evidence is incorrect (it's consistent with \"Percentage of superheroes published by Marvel Comics that are female\" but the question and SQL are both asking for the inverse.)"
   },
   {
     "question_id": 790,
@@ -2466,10 +2530,11 @@
   {
     "question_id": 565,
     "db_id": "codebase_community",
-    "question": "User No.23853 gave a comment to a post at 9:08:18 on 2013/7/12, was that post well-finished?",
+    "question": "User No.23853 gave a comment to a post at 9:08:18 on 2013/7/12, was that post well-finished? YES or NO",
     "evidence": "user no. 23853 refers to UserId = '23853'; at 9:08:18 on 2013/7/12 refers to CreationDate = '2013-07-12 09:08:18.0'; not well-finished refers to ClosedDate IS NULL and vice versa",
-    "SQL": "SELECT IIF(T2.ClosedDate IS NULL, 'NOT well-finished', 'well-finished') AS resylt FROM comments AS T1 INNER JOIN posts AS T2 ON T1.PostId = T2.Id WHERE T1.UserId = 23853 AND T1.CreationDate = '2013-07-12 09:08:18.0'",
-    "difficulty": "moderate"
+    "SQL": "SELECT IIF(T2.ClosedDate IS NULL, 'NO', 'YES') AS resylt FROM comments AS T1 INNER JOIN posts AS T2 ON T1.PostId = T2.Id WHERE T1.UserId = 23853 AND T1.CreationDate = '2013-07-12 09:08:18.0'",
+    "difficulty": "moderate",
+    "correction": "YES/NO format is needed"
   },
   {
     "question_id": 567,
@@ -2492,8 +2557,9 @@
     "db_id": "codebase_community",
     "question": "For the user No.24, how many times is the number of his/her posts compared to his/her votes?",
     "evidence": "user no. 24 refers to UserId = OwnerUserId = '24'; times of his/her post than votes = Divide (Count(post.Id), Count(votes.Id))",
-    "SQL": "SELECT CAST(COUNT(DISTINCT T2.Id) AS REAL) / COUNT(DISTINCT T1.Id) FROM votes AS T1 INNER JOIN posts AS T2 ON T1.UserId = T2.OwnerUserId WHERE T1.UserId = 24",
-    "difficulty": "moderate"
+    "SQL": "WITH count_votes AS (SELECT COUNT(*) AS vote_count FROM votes WHERE UserId = 24), count_posts AS (SELECT COUNT(*) AS post_count FROM posts WHERE OwnerUserId = 24) SELECT CAST(post_count AS REAL) / CAST(vote_count AS REAL) AS ratio FROM count_posts, count_votes",
+    "difficulty": "moderate",
+    "correction": "There is no indication from the question that one should join posts with votes instead of counting the raw number of posts and votes linked to the user."
   },
   {
     "question_id": 572,
@@ -2538,18 +2604,20 @@
   {
     "question_id": 584,
     "db_id": "codebase_community",
-    "question": "Write all the comments left by users who edited the post titled 'Why square the difference instead of taking the absolute value in standard deviation?'",
+    "question": "Write all the edit comments left by users who edited the post titled 'Why square the difference instead of taking the absolute value in standard deviation?'",
     "evidence": "\"Why square the difference instead of taking the absolute value in standard deviation?\" is the Title of post;",
     "SQL": "SELECT T2.Comment FROM posts AS T1 INNER JOIN postHistory AS T2 ON T1.Id = T2.PostId WHERE T1.Title = 'Why square the difference instead of taking the absolute value in standard deviation?'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "One possible interpretation is to list the normal comments of these users; clarify the type of comment"
   },
   {
     "question_id": 586,
     "db_id": "codebase_community",
     "question": "Which user added a bounty amount of 50 to the post title mentioning variance?",
     "evidence": "bounty amount of 50 refers to BountyAmount = 50; user refers to DisplayName; title mentioning variance refers to Title include 'variance'",
-    "SQL": "SELECT T3.DisplayName, T1.Title FROM posts AS T1 INNER JOIN votes AS T2 ON T1.Id = T2.PostId INNER JOIN users AS T3 ON T3.Id = T2.UserId WHERE T2.BountyAmount = 50 AND T1.Title LIKE '%variance%'",
-    "difficulty": "challenging"
+    "SQL": "SELECT T3.DisplayName FROM posts AS T1 INNER JOIN votes AS T2 ON T1.Id = T2.PostId INNER JOIN users AS T3 ON T3.Id = T2.UserId WHERE T2.BountyAmount = 50 AND T1.Title LIKE '%variance%'",
+    "difficulty": "challenging",
+    "correction": "The question does not imply that the post title should be returned."
   },
   {
     "question_id": 587,
@@ -2570,10 +2638,11 @@
   {
     "question_id": 595,
     "db_id": "codebase_community",
-    "question": "Which user have only one post history per post and having at least 1000 views?",
-    "evidence": "having at least 1000 view refers to Views > = 1000; user refers to UserId",
-    "SQL": "SELECT T2.UserId FROM users AS T1 INNER JOIN postHistory AS T2 ON T1.Id = T2.UserId INNER JOIN posts AS T3 ON T2.PostId = T3.Id WHERE T3.ViewCount >= 1000 GROUP BY T2.UserId HAVING COUNT(DISTINCT T2.PostHistoryTypeId) = 1",
-    "difficulty": "moderate"
+    "question": "Which users have only one post history type and have at least 100 views?",
+    "evidence": "having at least 100 view refers to Views >= 100; user refers to UserId",
+    "SQL": "SELECT T2.UserId FROM users AS T1 INNER JOIN postHistory AS T2 ON T1.Id = T2.UserId INNER JOIN posts AS T3 ON T2.PostId = T3.Id WHERE T1.Views >= 100 GROUP BY T2.UserId HAVING COUNT(DISTINCT T2.PostHistoryTypeId) = 1",
+    "difficulty": "moderate",
+    "correction": "Evidence said 'Views' but SQL used the post view count; also the question asks for '1 post history per post' but this is not what the SQL answers (and is a much harder query, which would likely make this a \"challenging\" question). The SQL is obtaining all users having exactly one post history type."
   },
   {
     "question_id": 598,
@@ -2610,10 +2679,11 @@
   {
     "question_id": 634,
     "db_id": "codebase_community",
-    "question": "Among posts by Harvey Motulsky and Noah Snyder, which one has higher popularity?",
+    "question": "Among posts by Harvey Motulsky and Noah Snyder, whose posts have higher popularity?",
     "evidence": "Has higher popularity means the post has higher view count ; calculation = MAX(SUM(ViewCount)) where DisplayName = 'Harvey Motulsky' OR DisplayName = 'Noah Snyder';",
-    "SQL": "SELECT T1.DisplayName FROM users AS T1 INNER JOIN postHistory AS T2 ON T1.Id = T2.UserId INNER JOIN posts AS T3 ON T2.PostId = T3.Id WHERE T1.DisplayName = 'Harvey Motulsky' OR T1.DisplayName = 'Noah Snyder' GROUP BY T1.DisplayName ORDER BY SUM(T3.ViewCount) DESC LIMIT 1",
-    "difficulty": "challenging"
+    "SQL": "SELECT T1.DisplayName, SUM(T2.ViewCount) FROM users AS T1 INNER JOIN posts AS T2 ON T1.Id = T2.OwnerUserId WHERE T1.DisplayName = 'Harvey Motulsky' OR T1.DisplayName = 'Noah Snyder' GROUP BY T1.DisplayName ORDER BY SUM(T2.ViewCount) DESC LIMIT 1",
+    "difficulty": "challenging",
+    "correction": "rephrased question so that expected output is clear. Golden SQL also had a bad join on postHistory"
   },
   {
     "question_id": 637,
@@ -2666,10 +2736,11 @@
   {
     "question_id": 672,
     "db_id": "codebase_community",
-    "question": "Among the users located in United Kingdom, how many users whose post have a total favorite amount of 4 or more?",
+    "question": "Among the users located in United Kingdom, how many users have at least one post with a favorite amount of 4 or more?",
     "evidence": "favorite amount of 4 or more refers to FavoriteCount > = 4; Location = 'United Kingdom';",
-    "SQL": "SELECT COUNT(T1.Id) FROM users AS T1 INNER JOIN posts AS T2 ON T1.Id = T2.OwnerUserId WHERE T1.Location = 'United Kingdom' AND T2.FavoriteCount >= 4",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(DISTINCT T1.Id) FROM users AS T1 INNER JOIN posts AS T2 ON T1.Id = T2.OwnerUserId WHERE T1.Location = 'United Kingdom' AND T2.FavoriteCount >= 4",
+    "difficulty": "moderate",
+    "correction": "Golden SQL needs to count distinct users for \"how many users\". Also, the golden SQL does not compute the total favorite score over all the user posts, but rather only looks for users with at least one post with favoriteCount >= 4."
   },
   {
     "question_id": 678,
@@ -2684,16 +2755,18 @@
     "db_id": "codebase_community",
     "question": "Which is the most valuable post in 2010? Please give its id and the owner's display name.",
     "evidence": "the most valuable post in 2010 refers to MAX(FavoriteCount) where year(CreationDate) = 2010;",
-    "SQL": "SELECT T2.OwnerUserId, T1.DisplayName FROM users AS T1 INNER JOIN posts AS T2 ON T1.Id = T2.OwnerUserId WHERE STRFTIME('%Y', T1.CreationDate) = '2010' ORDER BY T2.FavoriteCount DESC LIMIT 1",
-    "difficulty": "moderate"
+    "SQL": "SELECT T2.Id, T1.DisplayName FROM users AS T1 INNER JOIN posts AS T2 ON T1.Id = T2.OwnerUserId WHERE STRFTIME('%Y', T1.CreationDate) = '2010' ORDER BY T2.FavoriteCount DESC LIMIT 1",
+    "difficulty": "moderate",
+    "correction": "Golden SQL returns the user ID not the post ID as requested."
   },
   {
     "question_id": 683,
     "db_id": "codebase_community",
-    "question": "What is the percentage of posts whose owners had a reputation of over 1000 in 2011?",
+    "question": "What is the percentage of posts that were both created in 2011 and whose owners had a reputation of over 1000?",
     "evidence": "percentage = DIVIDE(COUNT(Id where YEAR(CreationDate) = 2011 and Reputation > 1000), COUNT(Id) ) * 100;",
     "SQL": "SELECT CAST(SUM(IIF(STRFTIME('%Y', T2.CreaionDate) = '2011' AND T1.Reputation > 1000, 1, 0)) AS REAL) * 100 / COUNT(T1.Id) FROM users AS T1 INNER JOIN posts AS T2 ON T1.Id = T2.OwnerUserId",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Evidence + SQL are not really consistent with the question as it is originally worded. We are counting the percentage (of all posts) who were posted in 2011 and whose owners have a reputation of over 1000, which is slightly different."
   },
   {
     "question_id": 685,
@@ -2709,7 +2782,8 @@
     "question": "How many comments were added to the post with the highest score?",
     "evidence": "the highest score refers to MAX(Score);",
     "SQL": "SELECT COUNT(T2.Id) FROM posts AS T1 INNER JOIN comments AS T2 ON T1.Id = T2.PostId GROUP BY T1.Id ORDER BY T1.Score DESC LIMIT 1",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "shouldn't be SUM(T1.Score)"
   },
   {
     "question_id": 694,
@@ -2764,32 +2838,36 @@
     "db_id": "codebase_community",
     "question": "Among the comments with scores between 5 to 10, what is the percentage of the users with 0 up votes?",
     "evidence": "percentage = DIVIDE(COUNT(UserId where UpVotes = 0 and Score BETWEEN 5 and 10))*100, (COUNT(UserId where Score BETWEEN 5 and 10));",
-    "SQL": "SELECT CAST(SUM(IIF(T1.UpVotes = 0, 1, 0)) AS REAL) * 100/ COUNT(T1.Id) AS per FROM users AS T1 INNER JOIN comments AS T2 ON T1.Id = T2.UserId WHERE T2.Score BETWEEN 5 AND 10",
-    "difficulty": "moderate"
+    "SQL": "SELECT CAST(SUM(IIF(T1.UpVotes = 0, 1, 0)) AS REAL) * 100/ COUNT(DISTINCT T1.Id) AS per FROM users AS T1 INNER JOIN comments AS T2 ON T1.Id = T2.UserId WHERE T2.Score BETWEEN 5 AND 10",
+    "difficulty": "moderate",
+    "correction": "Percentage of users implies that we need to deduplicate rows by user ID."
   },
   {
     "question_id": 340,
     "db_id": "card_games",
-    "question": "Which are the cards that have incredibly powerful foils.",
+    "question": "Which are the card ids that have incredibly powerful foils.",
     "evidence": "incredibly poweful foils refers to cardKingdomFoilId is not null AND cardKingdomId is not null",
     "SQL": "SELECT id FROM cards WHERE cardKingdomFoilId IS NOT NULL AND cardKingdomId IS NOT NULL",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "card name is more natural than \"id\" without an explicit instruction"
   },
   {
     "question_id": 341,
     "db_id": "card_games",
-    "question": "What are the borderless cards available without powerful foils?",
+    "question": "What are the borderless card ids available without powerful foils?",
     "evidence": "borderless' refers to borderColor; poweful foils refers to cardKingdomFoilId paired with cardKingdomId AND cardKingdomId is not null",
     "SQL": "SELECT id FROM cards WHERE borderColor = 'borderless' AND (cardKingdomId IS NULL OR cardKingdomId IS NULL)",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "card name is more natural than \"id\" without an explicit instruction"
   },
   {
     "question_id": 344,
     "db_id": "card_games",
-    "question": "List all the mythic rarity print cards banned in gladiator format.",
+    "question": "List all the mythic rarity print card ids banned in gladiator format.",
     "evidence": "mythic rarity printing refers to rarity = 'mythic'; card banned refers to status = 'Banned'; in gladiator format refers to format = 'gladiator';",
     "SQL": "SELECT DISTINCT T1.id FROM cards AS T1 INNER JOIN legalities AS T2 ON T1.uuid = T2.uuid WHERE T2.format = 'gladiator' AND T2.status = 'Banned' AND T1.rarity = 'mythic'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "card name is more natural than \"id\" without an explicit instruction"
   },
   {
     "question_id": 345,
@@ -2818,18 +2896,20 @@
   {
     "question_id": 349,
     "db_id": "card_games",
-    "question": "Name the card and artist with the most ruling information. Also state if the card is a promotional printing.",
+    "question": "Name the card with the most ruling information and its artist. Also state if the card is a promotional printing.",
     "evidence": "with the most ruling information refers to Max(count(rulings.uuid)); the card is the promotional printing refers to isPromo = 1;",
-    "SQL": "SELECT T1.name, T1.artist, T1.isPromo FROM cards AS T1 INNER JOIN rulings AS T2 ON T1.uuid = T2.uuid WHERE T1.isPromo = 1 AND T1.artist = (SELECT artist FROM cards WHERE isPromo = 1 GROUP BY artist HAVING COUNT(DISTINCT uuid) = (SELECT MAX(count_uuid) FROM ( SELECT COUNT(DISTINCT uuid) AS count_uuid FROM cards WHERE isPromo = 1 GROUP BY artist ))) LIMIT 1",
-    "difficulty": "moderate"
+    "SQL": "SELECT T1.name, T1.artist, T1.isPromo FROM cards AS T1 WHERE T1.uuid = (SELECT uuid FROM (SELECT uuid, COUNT(*) count_rulings FROM rulings ORDER BY count_rulings DESC LIMIT 1))",
+    "difficulty": "moderate",
+    "correction": "Artist with the most ruling information doesn't make that much sense. Naming the card with the most ruling information makes more sense. The SQL query does not agree with either interpretation."
   },
   {
     "question_id": 352,
     "db_id": "card_games",
     "question": "Calculate the percentage of the cards availabe in Chinese Simplified.",
     "evidence": "Chinese Simplified' is the language; percentage = Divide(Sum(id where language = 'Chinese Simplified'), Count(id)) *100",
-    "SQL": "SELECT CAST(SUM(CASE WHEN T2.language = 'Chinese Simplified' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(T1.id) FROM cards AS T1 INNER JOIN foreign_data AS T2 ON T1.uuid = T2.uuid",
-    "difficulty": "moderate"
+    "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN T2.language = 'Chinese Simplified' THEN T1.id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT T1.id) FROM cards AS T1 LEFT JOIN foreign_data AS T2 ON T1.uuid = T2.uuid",
+    "difficulty": "moderate",
+    "correction": "With the question as worded, it seems like cards without translations should still be included in the denominator. Also, we need to count distinct card IDs."
   },
   {
     "question_id": 356,
@@ -2914,10 +2994,11 @@
   {
     "question_id": 402,
     "db_id": "card_games",
-    "question": "What is the percentage of Story Spotlight cards that do not have a text box? List them by their ID.",
+    "question": "What is the percentage of Story Spotlight cards that do not have a text box?",
     "evidence": "Story Spotlight cards that do not have a text box refers to isStorylight = 1 and isTextless = 0; Percentage = DIVIDE(SUM(count(id) where isStorylight = 1 AND isTextless = 0 ), SUM(count(id))) * 100",
     "SQL": "SELECT CAST(SUM(CASE WHEN isTextless = 0 AND  isStorySpotlight = 1 THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(id) FROM cards",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "List them by their id is erroneously included"
   },
   {
     "question_id": 405,
@@ -2939,9 +3020,10 @@
     "question_id": 408,
     "db_id": "card_games",
     "question": "How many unknown power cards contain info about the triggered ability",
-    "evidence": "unknown power cards refers to power is null or power = '*';contain info about the triggered ability refers to text contains 'triggered ability'",
+    "evidence": "unknown power cards refers to power is null or power = '*';contain info about the triggered ability refers to ruling contains 'triggered ability'",
     "SQL": "SELECT Count(DISTINCT T1.id) FROM cards AS T1 INNER JOIN rulings AS T2 ON T1.uuid = T2.uuid WHERE (T1.power IS NULL OR T1.power = '*') AND T2.text LIKE '%triggered ability%'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Evidence is ambiguous as it implies that the **card text** contains triggered ability, which actually does occur in card text!"
   },
   {
     "question_id": 409,
@@ -2955,9 +3037,10 @@
     "question_id": 412,
     "db_id": "card_games",
     "question": "What is the foreign name of the card in French of type Creature, normal layout and black border color, by artist Matthew D. Wilson?",
-    "evidence": "in French refers to language = 'French'; black border color refers to borderColor = 'black'",
+    "evidence": "in French refers to language = 'French'; black border color refers to borderColor = 'black'; type Creature refers to types = 'Creature'",
     "SQL": "SELECT name FROM foreign_data WHERE uuid IN ( SELECT uuid FROM cards WHERE types = 'Creature' AND layout = 'normal' AND borderColor = 'black' AND artist = 'Matthew D. Wilson' ) AND language = 'French'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "There are \"Artifact Creature\" cards that are technically considered both type = Artifact AND type = Creature. To keep things simple, the evidence can just specify that types = 'Creature' is desired."
   },
   {
     "question_id": 414,
@@ -2980,8 +3063,9 @@
     "db_id": "card_games",
     "question": "What percentage of cards without power are in French?",
     "evidence": "in French refers to language = 'French'; cards without power refers to power IS NULL OR power = '*'; percentage = DIVIDE(COUNT(language = 'French' and power is NULL or power = '*'), COUNT( power is NULL or power = '*'))*100",
-    "SQL": "SELECT CAST(SUM(CASE WHEN T2.language = 'French' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(T1.id) FROM cards AS T1 INNER JOIN foreign_data AS T2 ON T1.uuid = T2.uuid WHERE T1.power IS NULL OR T1.power = '*'",
-    "difficulty": "challenging"
+    "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN T2.language = 'French' THEN T1.id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT T1.id) FROM cards AS T1 LEFT JOIN foreign_data AS T2 ON T1.uuid = T2.uuid WHERE T1.power IS NULL OR T1.power = '*'",
+    "difficulty": "challenging",
+    "correction": "With the question as worded, it seems like cards without power (but without translations) should still be included in the denominator, which requires a LEFT JOIN. Also, we need to count distinct card IDs."
   },
   {
     "question_id": 422,
@@ -2995,9 +3079,10 @@
     "question_id": 424,
     "db_id": "card_games",
     "question": "What proportion of cards do not have a text box with a normal layout?",
-    "evidence": "do not have a text box refers to isTextless = 1; proportion refers to DIVIDE(COUNT(Textless = 1 and layout = 'normal'),COUNT(Textless))*100",
+    "evidence": "do not have a text box refers to isTextless = 1; proportion refers to DIVIDE(COUNT(Textless = 1 and layout = 'normal'),COUNT(*))*100",
     "SQL": "SELECT CAST(SUM(CASE WHEN isTextless = 1 AND layout = 'normal' THEN 1 ELSE 0 END) AS REAL) * 100 / COUNT(*) FROM cards",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "Evidence would be for \"What proportion of textless cards have a normal layout?\" But question and SQL both compute proportion of ALL cards."
   },
   {
     "question_id": 427,
@@ -3034,10 +3119,11 @@
   {
     "question_id": 465,
     "db_id": "card_games",
-    "question": "For the set of cards with \"Ancestor's Chosen\" in it, is there a Korean version of it?",
+    "question": "Which sets of cards with \"Ancestor's Chosen\" in it have a Korean version?",
     "evidence": "set of cards with \"Ancestor''s Chosen\" in it refers to name = 'Ancestor''s Chosen'; Korean version refers to language = 'Korean'",
-    "SQL": "SELECT IIF(SUM(CASE WHEN T2.language = 'Korean' AND T2.translation IS NOT NULL THEN 1 ELSE 0 END) > 0, 'YES', 'NO') FROM cards AS T1 INNER JOIN set_translations AS T2 ON T2.setCode = T1.setCode WHERE T1.name = 'Ancestor''s Chosen'",
-    "difficulty": "moderate"
+    "SQL": "SELECT DISTINCT T3.name FROM cards AS T1 INNER JOIN set_translations AS T2 ON T2.setCode = T1.setCode INNER JOIN sets AS T3 ON T3.code = T1.setCode WHERE T1.name = 'Ancestor''s Chosen' AND T2.language = 'Korean'",
+    "difficulty": "moderate",
+    "correction": "There are multiple sets, so 'which' makes more sense"
   },
   {
     "question_id": 466,
@@ -3058,10 +3144,11 @@
   {
     "question_id": 469,
     "db_id": "card_games",
-    "question": "Did the set of cards with \"Angel of Mercy\" appear on Magic: The Gathering Online?",
+    "question": "Which sets of cards with \"Angel of Mercy\" appear on Magic: The Gathering Online?",
     "evidence": "card set \"Angel of Mercy\" refers to name = 'Angel of Mercy'; appear on Magic: The Gathering Online refers to mtgoCode is NOT NULL and vice versa",
-    "SQL": "SELECT IIF(T2.mtgoCode IS NOT NULL, 'YES', 'NO') FROM cards AS T1 INNER JOIN sets AS T2 ON T2.code = T1.setCode WHERE T1.name = 'Angel of Mercy'",
-    "difficulty": "moderate"
+    "SQL": "SELECT DISTINCT T2.name FROM cards AS T1 INNER JOIN sets AS T2 ON T2.code = T1.setCode WHERE T1.name = 'Angel of Mercy' AND T2.mtgoCode IS NOT NULL",
+    "difficulty": "moderate",
+    "correction": "There are multiple sets, so 'which' makes more sense"
   },
   {
     "question_id": 472,
@@ -3074,10 +3161,11 @@
   {
     "question_id": 473,
     "db_id": "card_games",
-    "question": "Is the set of cards with Adarkar Valkyrie only available outside the United States?",
-    "evidence": "card set Adarkar Valkyrie refers to name = 'Adarkar Valkyrie'; isForeignOnly = 1 means only available outside the United States;",
-    "SQL": "SELECT IIF(isForeignOnly = 1, 'YES', 'NO') FROM cards AS T1 INNER JOIN sets AS T2 ON T2.code = T1.setCode WHERE T1.name = 'Adarkar Valkyrie'",
-    "difficulty": "moderate"
+    "question": "Are any sets with Adarkar Valkyrie only available outside the United States? YES or NO.",
+    "evidence": "Adarkar Valkyrie refers to card name = 'Adarkar Valkyrie'; isForeignOnly = 1 means only available outside the United States;",
+    "SQL": "SELECT IIF(SUM(isForeignOnly) > 0, 'YES', 'NO') FROM cards AS T1 INNER JOIN sets AS T2 ON T2.code = T1.setCode WHERE T1.name = 'Adarkar Valkyrie'",
+    "difficulty": "moderate",
+    "correction": "There are multiple sets, so the question should specify 'any' and select the aggregation (and also specify YES or NO)"
   },
   {
     "question_id": 474,
@@ -3124,8 +3212,9 @@
     "db_id": "card_games",
     "question": "Please list the Italian names of the cards in the set Coldsnap with the highest converted mana cost.",
     "evidence": "card set Coldsnap refers to name = 'Coldsnap'; Italian refers to language = 'Italian'; highest converted mana cost refers to MAX(convertedManaCost)",
-    "SQL": "SELECT T2.name FROM foreign_data AS T1 INNER JOIN cards AS T2 ON T2.uuid = T1.uuid INNER JOIN sets AS T3 ON T3.code = T2.setCode WHERE T3.name = 'Coldsnap' AND T1.language = 'Italian' ORDER BY T2.convertedManaCost DESC",
-    "difficulty": "moderate"
+    "SQL": "SELECT T1.name FROM foreign_data AS T1 INNER JOIN cards AS T2 ON T2.uuid = T1.uuid INNER JOIN sets AS T3 ON T3.code = T2.setCode WHERE T3.name = 'Coldsnap' AND T1.language = 'Italian' AND T2.convertedManaCost = (SELECT MAX(convertedManaCost) FROM cards JOIN sets ON cards.setCode = sets.code WHERE sets.name = 'Coldsnap')",
+    "difficulty": "moderate",
+    "correction": "Golden SQL did not use the Italian names and it did not filter to the highest mana cost."
   },
   {
     "question_id": 486,
@@ -3170,18 +3259,20 @@
   {
     "question_id": 529,
     "db_id": "card_games",
-    "question": "Find and list the names of sets which doesn't have Japanese translation but have Korean translation.",
-    "evidence": "names of sets refers to name; doesn't have Japanese translation refers to language not like '%Japanese%'; have Korean translation refers to language = 'Korean'",
-    "SQL": "SELECT name FROM sets WHERE code IN ( SELECT setCode FROM set_translations WHERE language = 'Korean' AND language NOT LIKE '%Japanese%' )",
-    "difficulty": "moderate"
+    "question": "Find and list the names of cards which doesn't have Chinese translation but have Korean translation.",
+    "evidence": "doesn't have Chinese translation refers to language not like '%Chinese%'; have Korean translation refers to language = 'Korean'",
+    "SQL": "SELECT name FROM cards WHERE uuid IN (SELECT DISTINCT uuid FROM foreign_data WHERE language LIKE 'Korean' EXCEPT SELECT DISTINCT uuid FROM foreign_data WHERE language LIKE '%Japanese%')",
+    "difficulty": "moderate",
+    "correction": "All languages have the same sets, so the question has been rephrased to cards (which has a correct answer.)"
   },
   {
     "question_id": 530,
     "db_id": "card_games",
-    "question": "List all the frame styles and cards Allen Williams worked on and find any banned cards if there are any.",
+    "question": "List all the frame styles and cards Allen Williams worked on and add a YES/NO if the card is banned.",
     "evidence": "frame styles refers to frameVersion; cards Allen Williams worked on refers to artist = 'Allen Williams'; banned cards refers to status = 'Banned'",
-    "SQL": "SELECT DISTINCT T1.frameVersion, T1.name , IIF(T2.status = 'Banned', T1.name, 'NO') FROM cards AS T1 INNER JOIN legalities AS T2 ON T1.uuid = T2.uuid WHERE T1.artist = 'Allen Williams'",
-    "difficulty": "moderate"
+    "SQL": "SELECT DISTINCT T1.frameVersion, T1.name, IIF(T2.status = 'Banned', 'YES', 'NO') FROM cards AS T1 INNER JOIN legalities AS T2 ON T1.uuid = T2.uuid WHERE T1.artist = 'Allen Williams'",
+    "difficulty": "moderate",
+    "correction": "find any banned cards if there are any. is not clear enough; question expects a YES/NO column"
   },
   {
     "question_id": 195,
@@ -3195,17 +3286,19 @@
     "question_id": 197,
     "db_id": "toxicology",
     "question": "Calculate the average number of oxygen atoms in single-bonded molecules.",
-    "evidence": "single-bonded molecules refers to bond_type = '-' ; average number of oxygen atom = AVG(element = 'o')",
-    "SQL": "SELECT AVG(oxygen_count) FROM (SELECT T1.molecule_id, COUNT(T1.element) AS oxygen_count FROM atom AS T1 INNER JOIN bond AS T2 ON T1.molecule_id = T2.molecule_id  WHERE T2.bond_type = '-' AND T1.element = 'o'  GROUP BY T1.molecule_id) AS oxygen_counts",
-    "difficulty": "moderate"
+    "evidence": "single-bonded molecules refers to bond_type = '-' ; average number of oxygen atom = AVG(SUM(element = 'o'))",
+    "SQL": "WITH oxygen_atoms_per_molecule AS (SELECT atom.molecule_id, SUM(atom.element = 'o') AS oxygen_count FROM atom GROUP BY atom.molecule_id), single_bond_molecules AS (SELECT DISTINCT bond.molecule_id FROM bond WHERE bond.bond_type = '-') SELECT AVG(oxygen_atoms_per_molecule.oxygen_count) AS average_oxygen_atoms FROM single_bond_molecules JOIN oxygen_atoms_per_molecule ON single_bond_molecules.molecule_id = oxygen_atoms_per_molecule.molecule_id",
+    "difficulty": "moderate",
+    "correction": "Bad join in official SQL - atom.molecule_id to bond.molecule_id."
   },
   {
     "question_id": 198,
     "db_id": "toxicology",
-    "question": "On average how many carcinogenic molecules are single bonded?",
-    "evidence": "carcinogenic molecules refers to label = '+'; single-bonded refers to bond_type = '-'; average = DIVIDE(SUM(bond_type = '-'), COUNT(atom_id))",
-    "SQL": "SELECT AVG(single_bond_count) FROM (SELECT T3.molecule_id, COUNT(T1.bond_type) AS single_bond_count FROM bond AS T1  INNER JOIN atom AS T2 ON T1.molecule_id = T2.molecule_id INNER JOIN molecule AS T3 ON T3.molecule_id = T2.molecule_id WHERE T1.bond_type = '-' AND T3.label = '+' GROUP BY T3.molecule_id) AS subquery",
-    "difficulty": "challenging"
+    "question": "On average how many single bonds does a carcinogenic molecule contain?",
+    "evidence": "carcinogenic molecules refers to label = '+'; single-bonded refers to bond_type = '-'; average = DIVIDE(SUM(bond_type = '-'), COUNT(molecule_id))",
+    "SQL": "SELECT CAST(COUNT(IIF(T1.bond_type = '-', 1, 0)) AS REAL) / COUNT(DISTINCT T1.molecule_id) FROM bond AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.label = '+'",
+    "difficulty": "challenging",
+    "correction": "Question was incomplete. Correct interpretation is \"average number of bonds\"; also official SQL has bad join on atom/bond molecule_id."
   },
   {
     "question_id": 200,
@@ -3220,8 +3313,9 @@
     "db_id": "toxicology",
     "question": "What is the percentage of carbon in double-bond molecules?",
     "evidence": "carbon refers to element = 'c'; double-bond molecules refers to bond_type = '='; percentage = DIVIDE(SUM(element = 'c'), COUNT(atom_id))",
-    "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN T1.element = 'c' THEN T1.atom_id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT T1.atom_id) FROM atom AS T1 INNER JOIN bond AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.bond_type = '='",
-    "difficulty": "moderate"
+    "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN T1.element = 'c' THEN T1.atom_id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT T1.atom_id) FROM atom AS T1 INNER JOIN connected AS T2 ON T1.atom_id = T2.atom_id INNER JOIN bond AS T3 ON T2.bond_id = T3.bond_id WHERE T3.bond_type = '='",
+    "difficulty": "moderate",
+    "correction": "Bad atom/bond join on molecule_id again."
   },
   {
     "question_id": 206,
@@ -3236,8 +3330,9 @@
     "db_id": "toxicology",
     "question": "What elements are in a double type bond?",
     "evidence": "double type bond refers to bond_type = '=';",
-    "SQL": "SELECT DISTINCT T1.element FROM atom AS T1 INNER JOIN bond AS T2 ON T1.molecule_id = T2.molecule_id INNER JOIN connected AS T3 ON T1.atom_id = T3.atom_id WHERE T2.bond_type = '='",
-    "difficulty": "challenging"
+    "SQL": "SELECT DISTINCT T1.element FROM atom AS T1 INNER JOIN connected AS T2 ON T1.atom_id = T2.atom_id INNER JOIN bond AS T3 ON T2.bond_id = T3.bond_id WHERE T3.bond_type = '='",
+    "difficulty": "challenging",
+    "correction": "Bad atom/bond join on molecule_id again."
   },
   {
     "question_id": 208,
@@ -3266,26 +3361,29 @@
   {
     "question_id": 215,
     "db_id": "toxicology",
-    "question": "How many atoms with iodine and with sulfur type elements are there in single bond molecules?",
+    "question": "How many atoms with iodine and with sulfur type elements, respectively, are there in single bond molecules?",
     "evidence": "with iodine element refer to element = 'i'; with sulfur element refers to element = 's'; single type bond refers to bond_type = '-'; Should consider the distinct atoms when counting;",
-    "SQL": "SELECT COUNT(DISTINCT CASE WHEN T1.element = 'i' THEN T1.atom_id ELSE NULL END) AS iodine_nums , COUNT(DISTINCT CASE WHEN T1.element = 's' THEN T1.atom_id ELSE NULL END) AS sulfur_nums FROM atom AS T1 INNER JOIN connected AS T2 ON T1.atom_id = T2.atom_id INNER JOIN bond AS T3 ON T2.bond_id = T3.bond_id WHERE T3.bond_type = '-'",
-    "difficulty": "challenging"
+    "SQL": "SELECT COUNT(DISTINCT CASE WHEN atom.element = 'i' THEN atom.atom_id ELSE NULL END) AS iodine_nums, COUNT(DISTINCT CASE WHEN atom.element = 's' THEN atom.atom_id ELSE NULL END) AS sulfur_nums FROM atom WHERE atom.molecule_id IN (SELECT DISTINCT bond.molecule_id FROM bond WHERE bond.bond_type = '-')",
+    "difficulty": "challenging",
+    "correction": "Need to clarify the question a little bit (\"respectively\" => two columns), and also the official SQL only counts elements in single bonds not single bonded MOLECULES."
   },
   {
     "question_id": 218,
     "db_id": "toxicology",
     "question": "What percentage of carcinogenic-type molecules does not contain fluorine?",
     "evidence": "label = '+' mean molecules are carcinogenic; contain fluorine refers to element = 'f'; percentage = DIVIDE(SUM(element = 'f') * 100, COUNT(molecule_id)) where label = '+'; Should consider the distinct atoms when counting;",
-    "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN T1.element <> 'f' THEN T2.molecule_id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT T2.molecule_id) FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.label = '+'",
-    "difficulty": "challenging"
+    "SQL": "SELECT 100 - CAST(COUNT(DISTINCT CASE WHEN T1.element = 'f' THEN T2.molecule_id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT T2.molecule_id) FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.label = '+'",
+    "difficulty": "challenging",
+    "correction": "The query counts molecules containing non-fluorine atoms which is not the same. We need to do (100% - percentage_of_molecules_containing_fluorine)"
   },
   {
     "question_id": 219,
     "db_id": "toxicology",
-    "question": "What is the percentage of carcinogenic molecules in triple type bonds?",
+    "question": "What is the percentage of molecules in triple type bonds are carcinogenic?",
     "evidence": "label = '+' mean molecules are carcinogenic; triple bond refers to bond_type = '#'; percentage = DIVIDE(SUM(bond_type = '#') * 100, COUNT(bond_id)) as percent where label = '+'",
     "SQL": "SELECT CAST(COUNT(DISTINCT CASE WHEN T2.label = '+' THEN T2.molecule_id ELSE NULL END) AS REAL) * 100 / COUNT(DISTINCT T2.molecule_id) FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id INNER JOIN bond AS T3 ON T2.molecule_id = T3.molecule_id WHERE T3.bond_type = '#'",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Question was inverted vs SQL. \"Percentage of carcinogenic molecules in triple type bonds\"."
   },
   {
     "question_id": 220,
@@ -3330,10 +3428,11 @@
   {
     "question_id": 231,
     "db_id": "toxicology",
-    "question": "Which bond type accounted for the majority of the bonds found in molecule TR010 and state whether or not this molecule is carcinogenic?",
+    "question": "Which bond type accounted for the majority of the bonds found in molecule TR010?",
     "evidence": "TR010 is the molecule id; majority of the bond found refers to MAX(COUNT(bond_type)); ",
     "SQL": "SELECT T.bond_type FROM ( SELECT T1.bond_type, COUNT(T1.molecule_id) FROM bond AS T1  WHERE T1.molecule_id = 'TR010' GROUP BY T1.bond_type ORDER BY COUNT(T1.molecule_id) DESC LIMIT 1 ) AS T",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Whether or not it's carcinogenic is not included in true SQL."
   },
   {
     "question_id": 232,
@@ -3348,8 +3447,9 @@
     "db_id": "toxicology",
     "question": "How many bonds which involved atom 12 does molecule TR009 have?",
     "evidence": "TR009 is the molecule id;  involved atom 12 refers to atom_id = 'TR009_12' or atom_id2 = 'TR009_12'",
-    "SQL": "SELECT COUNT(T2.bond_id) FROM bond AS T1 INNER JOIN connected AS T2 ON T1.bond_id = T2.bond_id WHERE T1.molecule_id = 'TR009' AND T2.atom_id = T1.molecule_id || '_1' OR T2.atom_id2 = T1.molecule_id || '_2'",
-    "difficulty": "moderate"
+    "SQL": "SELECT COUNT(DISTINCT bond_id) FROM connected WHERE atom_id = 'TR009_12' OR atom_id2 = 'TR009_12'",
+    "difficulty": "moderate",
+    "correction": "I'm not sure why the golden SQL is looking for '_1' and '_2' but the question is clearly asking for atom 12."
   },
   {
     "question_id": 236,
@@ -3412,16 +3512,18 @@
     "db_id": "toxicology",
     "question": "List all the elements of atoms that can not bond with any other atoms.",
     "evidence": " atoms cannot bond with other atoms means atom_id NOT in connected table;",
-    "SQL": "SELECT DISTINCT T.element FROM atom AS T WHERE T.element NOT IN ( SELECT DISTINCT T1.element FROM atom AS T1 INNER JOIN connected AS T2 ON T1.atom_id = T2.atom_id )",
-    "difficulty": "challenging"
+    "SQL": "SELECT DISTINCT T.element FROM atom AS T WHERE T.atom_id NOT IN (SELECT DISTINCT atom_id FROM connected)",
+    "difficulty": "challenging",
+    "correction": "SQL does not match the evidence! (SQL is looking for elements that are not connected, not elements of atoms that are not connected.)"
   },
   {
     "question_id": 248,
     "db_id": "toxicology",
-    "question": "What are the atoms of the triple bond with the molecule \"TR041\"?",
+    "question": "List all the atom IDs of the triple bonds in molecule \"TR041\"?",
     "evidence": "TR041 is the molecule id; triple bond refers to bond_type = '#';",
-    "SQL": "SELECT T2.atom_id, T2.atom_id2 FROM atom AS T1 INNER JOIN connected AS T2 ON T1.atom_id = T2.atom_id INNER JOIN bond AS T3 ON T2.bond_id = T3.bond_id WHERE T3.bond_type = '#' AND T3.molecule_id = 'TR041'",
-    "difficulty": "simple"
+    "SQL": "SELECT DISTINCT T2.atom_id FROM atom AS T1 INNER JOIN connected AS T2 ON T1.atom_id = T2.atom_id INNER JOIN bond AS T3 ON T2.bond_id = T3.bond_id WHERE T3.bond_type = '#' AND T3.molecule_id = 'TR041'",
+    "difficulty": "simple",
+    "correction": "Returning a single column with all the atoms contained in the triple bond is more natural, and avoids ambiguity (because it's unclear if col1 > col2 or col1 < col2)."
   },
   {
     "question_id": 249,
@@ -3460,8 +3562,9 @@
     "db_id": "toxicology",
     "question": "What is the composition of element chlorine in percentage among the single bond molecules?",
     "evidence": "element chlorine refers to element = 'cl'; single bond refers to bond_type = '-'; percentage = DIVIDE(SUM(element = 'cl'), COUNT(atom_id)) as percent where bond_type = '-'",
-    "SQL": "SELECT CAST(COUNT(CASE WHEN T.element = 'cl' THEN T.atom_id ELSE NULL END) AS REAL) * 100 / COUNT(T.atom_id) FROM ( SELECT T1.atom_id, T1.element FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id INNER JOIN bond AS T3 ON T2.molecule_id = T3.molecule_id WHERE T3.bond_type = '-' ) AS T",
-    "difficulty": "challenging"
+    "SQL": "SELECT CAST(COUNT(CASE WHEN T.element = 'cl' THEN T.atom_id ELSE NULL END) AS REAL) * 100 / COUNT(T.atom_id) FROM atom AS T WHERE molecule_id IN (SELECT DISTINCT molecule.molecule_id FROM molecule JOIN bond ON molecule.molecule_id = bond.molecule_id AND bond.bond_type = '-')",
+    "difficulty": "challenging",
+    "correction": "Aggregation must be over unique atom counts and not the joined tables."
   },
   {
     "question_id": 268,
@@ -3475,9 +3578,10 @@
     "question_id": 273,
     "db_id": "toxicology",
     "question": "What is the percentage of element chlorine in carcinogenic molecules?",
-    "evidence": "chlorine refers to element = 'cl'; label = '+' mean molecules are carcinogenic; percentage = DIVIDE(SUM(element = 'pb'); COUNT(molecule_id)) as percentage where label = '+'",
+    "evidence": "chlorine refers to element = 'cl'; label = '+' mean molecules are carcinogenic; percentage = DIVIDE(SUM(element = 'cl'); COUNT(molecule_id)) as percentage where label = '+'",
     "SQL": "SELECT CAST(COUNT( CASE WHEN T1.element = 'cl' THEN T1.element ELSE NULL END) AS REAL) * 100 / COUNT(T1.element) FROM atom AS T1 INNER JOIN molecule AS T2 ON T1.molecule_id = T2.molecule_id WHERE T2.label = '+'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Evidence has a typo and is filtering for lead (pb) elements"
   },
   {
     "question_id": 281,
@@ -3530,18 +3634,20 @@
   {
     "question_id": 17,
     "db_id": "california_schools",
-    "question": "Rank schools by their average score in Writing where the score is greater than 499, showing their charter numbers.",
+    "question": "Rank schools by their average score in Writing where the score is greater than 499, showing their charter numbers, average score, and rank.",
     "evidence": "Valid charter number means the number is not null",
     "SQL": "SELECT CharterNum, AvgScrWrite, RANK() OVER (ORDER BY AvgScrWrite DESC) AS WritingScoreRank FROM schools AS T1  INNER JOIN satscores AS T2 ON T1.CDSCode = T2.cds WHERE T2.AvgScrWrite > 499 AND CharterNum is not null",
-    "difficulty": "simple"
+    "difficulty": "simple",
+    "correction": "Made original question clearer to reflect the desired output columns."
   },
   {
     "question_id": 23,
     "db_id": "california_schools",
     "question": "List the names of schools with more than 30 difference in enrollements between K-12 and ages 5-17? Please also give the full street adress of the schools.",
-    "evidence": "Diffrence in enrollement = `Enrollment (K-12)` - `Enrollment (Ages 5-17)`",
+    "evidence": "Diffrence in enrollement = \"Enrollment (K-12)\" - \"Enrollment (Ages 5-17)\", school name = \"School\"",
     "SQL": "SELECT T1.School, T1.Street FROM schools AS T1 INNER JOIN frpm AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.`Enrollment (K-12)` - T2.`Enrollment (Ages 5-17)` > 30",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "schools has both \"School\" and \"School Name\", both of which appear to be school names (with extremely subtle differences). Added a clarification in 'evidence'"
   },
   {
     "question_id": 24,
@@ -3554,18 +3660,20 @@
   {
     "question_id": 25,
     "db_id": "california_schools",
-    "question": "Name schools in Riverside which the average of average math score for SAT is grater than 400, what is the funding type of these schools?",
+    "question": "Name schools in Riverside district which the average of average math score for SAT is grater than 400, what is the funding type of these schools?",
     "evidence": "Average of average math = sum(average math scores) / count(schools).",
     "SQL": "SELECT T1.sname, T2.`Charter Funding Type` FROM satscores AS T1 INNER JOIN frpm AS T2 ON T1.cds = T2.CDSCode WHERE T2.`District Name` LIKE 'Riverside%' GROUP BY T1.sname, T2.`Charter Funding Type` HAVING CAST(SUM(T1.AvgScrMath) AS REAL) / COUNT(T1.cds) > 400",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Riverside' is both a valid district and a county. Clarified in question."
   },
   {
     "question_id": 26,
     "db_id": "california_schools",
     "question": "State the names and full communication address of high schools in Monterey which has more than 800 free or reduced price meals for ages 15-17?",
     "evidence": "Full communication address should include Street, City, State and zip code if any.",
-    "SQL": "SELECT T1.`School Name`, T2.Street, T2.City, T2.State, T2.Zip FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.County = 'Monterey' AND T1.`Free Meal Count (Ages 5-17)` > 800 AND T1.`School Type` = 'High Schools (Public)'",
-    "difficulty": "moderate"
+    "SQL": "SELECT T1.\"School Name\", T2.Street, T2.City, T2.State, T2.Zip FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.County = 'Monterey' AND T1.\"FRPM Count (Ages 5-17)\" > 800 AND T1.\"School Type\" = 'High Schools (Public)'",
+    "difficulty": "moderate",
+    "correction": "Original SQL uses \"Free Meal Count\" which seems wrong; question asks for \"Free or reduced priced meals\" = \"FRPM Count\""
   },
   {
     "question_id": 27,
@@ -3573,15 +3681,17 @@
     "question": "What is the average score in writing for the schools that were opened after 1991 or closed before 2000? List the school names along with the score. Also, list the communication number of the schools if there is any.",
     "evidence": "Communication number refers to phone number.",
     "SQL": "SELECT T2.School, T1.AvgScrWrite, T2.Phone FROM schools AS T2 LEFT JOIN satscores AS T1 ON T2.CDSCode = T1.cds WHERE strftime('%Y', T2.OpenDate) > '1991' OR strftime('%Y', T2.ClosedDate) < '2000'",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Warning: the answer has several NULL average writing scores"
   },
   {
     "question_id": 28,
     "db_id": "california_schools",
     "question": "Consider the average difference between K-12 enrollment and 15-17 enrollment of schools that are locally funded, list the names and DOC type of schools which has a difference above this average.",
     "evidence": "Difference between K-12 enrollment and 15-17 enrollment can be computed by `Enrollment (K-12)` - `Enrollment (Ages 5-17)`",
-    "SQL": "SELECT T2.School, T2.DOC FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.FundingType = 'Locally funded' AND (T1.`Enrollment (K-12)` - T1.`Enrollment (Ages 5-17)`) > (SELECT AVG(T3.`Enrollment (K-12)` - T3.`Enrollment (Ages 5-17)`) FROM frpm AS T3 INNER JOIN schools AS T4 ON T3.CDSCode = T4.CDSCode WHERE T4.FundingType = 'Locally funded')",
-    "difficulty": "challenging"
+    "SQL": "SELECT T2.School, T2.DOCType FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.FundingType = 'Locally funded' AND (T1.\"Enrollment (K-12)\" - T1.\"Enrollment (Ages 5-17)\") > (SELECT AVG(T3.\"Enrollment (K-12)\" - T3.\"Enrollment (Ages 5-17)\") FROM frpm AS T3 INNER JOIN schools AS T4 ON T3.CDSCode = T4.CDSCode WHERE T4.FundingType = 'Locally funded')",
+    "difficulty": "challenging",
+    "correction": "Original SQL uses DOC not DOCType; DOCType seems strictly preferable."
   },
   {
     "question_id": 31,
@@ -3604,8 +3714,9 @@
     "db_id": "california_schools",
     "question": "What is the complete address of the school with the lowest excellence rate? Indicate the Street, City, Zip and State.",
     "evidence": "Execellence Rate = NumGE1500 / NumTstTakr; complete address has Street, City, State, Zip code",
-    "SQL": "SELECT T2.Street, T2.City, T2.State, T2.Zip FROM satscores AS T1 INNER JOIN schools AS T2 ON T1.cds = T2.CDSCode ORDER BY CAST(T1.NumGE1500 AS REAL) / T1.NumTstTakr ASC LIMIT 1",
-    "difficulty": "moderate"
+    "SQL": "SELECT T2.Street, T2.City, T2.State, T2.Zip FROM satscores AS T1 INNER JOIN schools AS T2 ON T1.cds = T2.CDSCode ORDER BY CAST(T1.NumGE1500 AS REAL) / T1.NumTstTakr ASC NULLS LAST LIMIT 1",
+    "difficulty": "moderate",
+    "correction": "Original SQL does not filter out null excellence rates"
   },
   {
     "question_id": 36,
@@ -3613,7 +3724,8 @@
     "question": "Under whose administration is the school with the highest number of students scoring 1500 or more on the SAT? Indicate their full names.",
     "evidence": "full name means first name, last name; There are at most 3 administrators for each school; SAT Scores are greater or equal to 1500 refers to NumGE1500",
     "SQL": "SELECT T2.AdmFName1, T2.AdmLName1, T2.AdmFName2, T2.AdmLName2, T2.AdmFName3, T2.AdmLName3 FROM satscores AS T1 INNER JOIN schools AS T2 ON T1.cds = T2.CDSCode ORDER BY T1.NumGE1500 DESC LIMIT 1",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Warning: the school in question only has one administrator. ADMFName3 and ADMLName3 were also marked as \"not useful\"."
   },
   {
     "question_id": 39,
@@ -3690,10 +3802,11 @@
   {
     "question_id": 72,
     "db_id": "california_schools",
-    "question": "How many students from the ages of 5 to 17 are enrolled at the State Special School school in Fremont for the 2014-2015 academic year?",
+    "question": "How many students from the ages of 5 to 17 are enrolled at State Special School schools in Fremont for the 2014-2015 academic year?",
     "evidence": "State Special School means EdOpsCode = 'SSS'",
-    "SQL": "SELECT T1.`Enrollment (Ages 5-17)` FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.EdOpsCode = 'SSS' AND T2.City = 'Fremont' AND T1.`Academic Year` BETWEEN 2014 AND 2015",
-    "difficulty": "moderate"
+    "SQL": "SELECT SUM(T1.\"Enrollment (Ages 5-17)\") FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.EdOpsCode = 'SSS' AND T2.City = 'Fremont' AND T1.\"Academic Year\" BETWEEN 2014 AND 2015",
+    "difficulty": "moderate",
+    "correction": "There are multiple state special schools in Fremont, so summing is appropriate."
   },
   {
     "question_id": 77,
@@ -3722,10 +3835,11 @@
   {
     "question_id": 83,
     "db_id": "california_schools",
-    "question": "Of the schools that offers a magnet program serving a grade span of Kindergarten to 8th grade, how many offers Multiple Provision Types? List the number of cities that offers a Kindergarten to 8th grade span and indicate how many schools are there serving such grade span for each city.",
+    "question": "Of the schools that offers a magnet program serving a grade span of Kindergarten to 8th grade, how many offers Multiple Provision Types? List the cities that offer a Kindergarten to 8th grade span and indicate how many schools are there serving such grade span for each city.",
     "evidence": "Kindergarten to 8th grade refers to K-8; 'Offers a magnet program' means Magnet = 1; Multiple Provision Types refers to `NSLP Provision Status` = 'Multiple Provision Types'",
     "SQL": "SELECT T2.City, COUNT(T2.CDSCode) FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.Magnet = 1 AND T2.GSoffered = 'K-8' AND T1.`NSLP Provision Status` = 'Multiple Provision Types' GROUP BY T2.City",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "original question says \"list the number of cities\""
   },
   {
     "question_id": 85,
@@ -3738,7 +3852,7 @@
   {
     "question_id": 87,
     "db_id": "california_schools",
-    "question": "What are the valid e-mail addresses of the administrator of the school located in the San Bernardino county, City of San Bernardino City Unified that opened between 1/1/2009 to 12/31/2010 whose school types are public Intermediate/Middle Schools and Unified Schools?",
+    "question": "What are the valid e-mail addresses of the administrator of the school located in the San Bernardino county, City of San Bernardino City Unified that opened between 1/1/2009 to 12/31/2010 which is also both an Intermediate/Middle School and Unified School? List the valid emails in two columns.",
     "evidence": "Intermediate/Middle Schools refers to SOC = 62; Unified School refers to DOC = 54; years between 2009 and 2010 can refer to 'between 1/1/2009 to 12/31/2010'",
     "SQL": "SELECT T2.AdmEmail1, T2.AdmEmail2 FROM frpm AS T1 INNER JOIN schools AS T2 ON T1.CDSCode = T2.CDSCode WHERE T2.County = 'San Bernardino' AND T2.City = 'San Bernardino' AND T2.DOC = 54 AND strftime('%Y', T2.OpenDate) BETWEEN '2009' AND '2010' AND T2.SOC = 62",
     "difficulty": "challenging"
@@ -3770,18 +3884,20 @@
   {
     "question_id": 94,
     "db_id": "financial",
-    "question": "List out the account numbers of female clients who are oldest and has lowest average salary, calculate the gap between this lowest average salary with the highest average salary?",
+    "question": "What is (1) the account number of the oldest female client and (2) the gap between the highest average salary and the lowest average salary?",
     "evidence": "Female means gender = 'F'; A11 refers to average salary; Gap = highest average salary - lowest average salary; If the person A's birthdate > B's birthdate, it means that person B is order than person A.",
-    "SQL": "SELECT T1.account_id , ( SELECT MAX(A11) - MIN(A11) FROM district ) FROM account AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id INNER JOIN disp AS T3 ON T1.account_id = T3.account_id INNER JOIN client AS T4 ON T3.client_id = T4.client_id WHERE T2.district_id = ( SELECT district_id FROM client WHERE gender = 'F' ORDER BY birth_date ASC LIMIT 1 ) ORDER BY T2.A11 DESC LIMIT 1",
-    "difficulty": "challenging"
+    "SQL": "SELECT T1.account_id , ( SELECT MAX(A11) - MIN(A11) FROM district ) FROM account AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id INNER JOIN disp AS T3 ON T1.account_id = T3.account_id INNER JOIN client AS T4 ON T3.client_id = T4.client_id WHERE T4.client_id = ( SELECT client_id FROM client WHERE gender = 'F' ORDER BY birth_date ASC LIMIT 1 ) ORDER BY T2.A11 DESC LIMIT 1",
+    "difficulty": "challenging",
+    "correction": "The question and answer are both non-sensical. Only reasonable interpretation is..."
   },
   {
     "question_id": 95,
     "db_id": "financial",
-    "question": "List out the account numbers of clients who are youngest and have highest average salary?",
+    "question": "Find the account number of the youngest client, breaking ties by the average salary of their district.",
     "evidence": "If the person A's birthdate < B's birthdate, it means that person B is younger than person A; A11 refers to average salary",
     "SQL": "SELECT T1.account_id  FROM account AS T1 INNER JOIN disp AS T2 ON T1.account_id = T2.account_id INNER JOIN client AS T3 ON T2.client_id = T3.client_id INNER JOIN district AS T4 on T4.district_id = T1.district_id WHERE T2.client_id = ( SELECT client_id FROM client ORDER BY birth_date DESC LIMIT 1) GROUP BY T4.A11, T1.account_id",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Original question is non-sensical"
   },
   {
     "question_id": 98,
@@ -3820,8 +3936,9 @@
     "db_id": "financial",
     "question": "For the branch which located in the south Bohemia with biggest number of inhabitants, what is the percentage of the male clients?",
     "evidence": "Percentage of the male clients = DIVIDE(COUNT(male clients), COUNT(clients)) * 100; Male refers to gender = 'M', A3 is the region name. A4 contains the information about inhabitants.",
-    "SQL": "SELECT CAST(SUM(T1.gender = 'M') AS REAL) * 100 / COUNT(T1.client_id) FROM client AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id WHERE T2.A3 = 'south Bohemia' GROUP BY T2.A4 ORDER BY T2.A4 DESC LIMIT 1",
-    "difficulty": "challenging"
+    "SQL": "SELECT CAST(SUM(T1.gender = 'M') AS REAL) * 100 / COUNT(T1.client_id) FROM client AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id WHERE T2.A3 = 'south Bohemia' GROUP BY T2.A4 ORDER BY CAST(T2.A4 AS INTEGER) DESC LIMIT 1",
+    "difficulty": "challenging",
+    "correction": "Need to cast A4 as integer before ordering!"
   },
   {
     "question_id": 116,
@@ -3829,7 +3946,8 @@
     "question": "For the client whose loan was approved first in 1993/7/5, what is the increase rate of his/her account balance from 1993/3/22 to 1998/12/27?",
     "evidence": "Increase rate of his/her account balance = [(balance of date A - balance of date B) / balance of Date B] * 100%",
     "SQL": "SELECT CAST((SUM(IIF(T3.date = '1998-12-27', T3.balance, 0)) - SUM(IIF(T3.date = '1993-03-22', T3.balance, 0))) AS REAL) * 100 / SUM(IIF(T3.date = '1993-03-22', T3.balance, 0)) FROM loan AS T1 INNER JOIN account AS T2 ON T1.account_id = T2.account_id INNER JOIN trans AS T3 ON T3.account_id = T2.account_id WHERE T1.date = '1993-07-05'",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Warning: answer may be sensitive to order of operations"
   },
   {
     "question_id": 117,
@@ -3850,10 +3968,11 @@
   {
     "question_id": 125,
     "db_id": "financial",
-    "question": "For loans contracts which are still running where client are in debt, list the district of the and the state the percentage unemployment rate increment from year 1995 to 1996.",
+    "question": "For loans contracts which are still running where client are in debt, state the percentage unemployment rate increment from year 1995 to 1996.",
     "evidence": "Unemployment increment rate in percentage = [(unemployment rate 2016 - unemployment rate 2015) / unemployment rate 2015] * 100; unemployment rate 2015 appears in the A12; unemployment rate 2016 appears in the A13; Loan contracts which are still running where client are in debt can be presented as status = 'D'",
     "SQL": "SELECT CAST((T3.A13 - T3.A12) AS REAL) * 100 / T3.A12 FROM loan AS T1 INNER JOIN account AS T2 ON T1.account_id = T2.account_id INNER JOIN district AS T3 ON T2.district_id = T3.district_id WHERE T1.status = 'D'",
-    "difficulty": "challenging"
+    "difficulty": "challenging",
+    "correction": "Question stated \"state the district\" but this was not reflected in the SQL. Corrected the question for convenience"
   },
   {
     "question_id": 128,
@@ -3890,18 +4009,20 @@
   {
     "question_id": 129,
     "db_id": "financial",
-    "question": "Which are the top ten withdrawals (non-credit card) by district names for the month of January 1996?",
+    "question": "Which are the district names of the top ten withdrawals (non-credit card) for the month of January 1996?",
     "evidence": "Non-credit card withdraws refers to type = 'VYDAJ'; January 1996 can be found by date LIKE '1996-01%' in the database; A2 means district names",
-    "SQL": "SELECT DISTINCT T1.A2 FROM district AS T1 INNER JOIN account AS T2 ON T1.district_id = T2.district_id INNER JOIN trans AS T3 ON T2.account_id = T3.account_id WHERE T3.type = 'VYDAJ' AND T3.date LIKE '1996-01%' ORDER BY A2 ASC LIMIT 10",
-    "difficulty": "moderate"
+    "SQL": "SELECT DISTINCT T1.A2 FROM district AS T1 INNER JOIN account AS T2 ON T1.district_id = T2.district_id INNER JOIN trans AS T3 ON T2.account_id = T3.account_id WHERE T3.type = 'VYDAJ' AND T3.date LIKE '1996-01%' ORDER BY T3.amount DESC LIMIT 10",
+    "difficulty": "moderate",
+    "correction": "Original question says \"top ten withdrawals\" by district name and literally sorts by district name. This is a highly unusual interpretation"
   },
   {
     "question_id": 145,
     "db_id": "financial",
-    "question": "Who are the account holder identification numbers whose who have transactions on the credit card with the amount is less than the average, in 1998?",
+    "question": "Who are the account holder identification numbers whose who have transactions on the credit card with the amount is less than the average overall transaction amount, in 1998?",
     "evidence": "Operation = 'VYBER KARTOU' refers to credit card withdrawal",
     "SQL": "SELECT T1.account_id FROM trans AS T1 INNER JOIN account AS T2 ON T1.account_id = T2.account_id WHERE STRFTIME('%Y', T1.date) = '1998' AND T1.operation = 'VYBER KARTOU' AND T1.amount < (SELECT AVG(amount) FROM trans WHERE STRFTIME('%Y', date) = '1998')",
-    "difficulty": "moderate"
+    "difficulty": "moderate",
+    "correction": "Question says \"less than the average\" but it's ambiguous as to whether this is the overall average or the credit card average."
   },
   {
     "question_id": 149,
@@ -3914,10 +4035,11 @@
   {
     "question_id": 152,
     "db_id": "financial",
-    "question": "What is the average number of crimes committed in 1995 in regions where the number exceeds 4000 and the region has accounts that are opened starting from the year 1997?",
-    "evidence": "A3 refers to region names; A15 stands for the average number of crimes commited in 1995.",
-    "SQL": "SELECT AVG(T1.A15) FROM district AS T1 INNER JOIN account AS T2 ON T1.district_id = T2.district_id WHERE STRFTIME('%Y', T2.date) >= '1997' AND T1.A15 > 4000",
-    "difficulty": "moderate"
+    "question": "What is the average number of crimes committed in 1995 in districts where the number exceeds 4000 and the district has accounts that are opened starting from the year 1997?",
+    "evidence": "A15 stands for the number of crimes commited in 1995.",
+    "SQL": "SELECT AVG(T1.A15) FROM district AS T1 WHERE T1.district_id IN (SELECT DISTINCT T2.district_id FROM account T2 WHERE STRFTIME('%Y', T2.date) >= '1997') AND T1.A15 > 4000",
+    "difficulty": "moderate",
+    "correction": "Golden SQL only looks at districts, not regions. Also, the average includes the same districts twice due to the join."
   },
   {
     "question_id": 159,
@@ -3956,8 +4078,9 @@
     "db_id": "financial",
     "question": "What percentage of male clients request for weekly statements to be issued?",
     "evidence": "Percentage of male clients = [count(male clients who requested weekly statements / count(clients who requested weekly statements)] * 100%; Male means gender = 'M'; 'POPLATEK TYDNE' stands for weekly issuance",
-    "SQL": "SELECT CAST(SUM(T1.gender = 'M') AS REAL) * 100 / COUNT(T1.client_id) FROM client AS T1 INNER JOIN district AS T3 ON T1.district_id = T3.district_id INNER JOIN account AS T2 ON T2.district_id = T3.district_id INNER JOIN disp as T4 on T1.client_id = T4.client_id AND T2.account_id = T4.account_id WHERE T2.frequency = 'POPLATEK TYDNE'",
-    "difficulty": "moderate"
+    "SQL": "SELECT CAST(SUM(T1.gender = 'M') AS REAL) * 100 / COUNT(T1.client_id) FROM client AS T1 INNER JOIN disp AS T2 ON T1.client_id = T2.client_id INNER JOIN account AS T3 ON T2.account_id = T3.account_id WHERE T3.frequency = 'POPLATEK TYDNE'",
+    "difficulty": "moderate",
+    "correction": "Bad join in official SQL - client.district_id to account.district_id"
   },
   {
     "question_id": 189,
