@@ -3896,22 +3896,6 @@
     "difficulty": "moderate"
   },
   {
-    "question_id": 137,
-    "db_id": "financial",
-    "question": "How many accounts have running contracts in Branch location 1?",
-    "evidence": "Status = 'C' stands for running contract, OK so far; Status = 'D' stands for running contract, client in debt",
-    "SQL": "SELECT COUNT(T1.account_id) FROM account AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id INNER JOIN loan AS T3 ON T1.account_id = T3.account_id WHERE T1.district_id = 1 AND (T3.status = 'C' OR T3.status = 'D')",
-    "difficulty": "moderate"
-  },
-  {
-    "question_id": 138,
-    "db_id": "financial",
-    "question": "In the branch where the second-highest number of crimes were committed in 1995 occurred, how many male clients are there?",
-    "evidence": "Male refers to gender = 'M'; A15 stands for no. of commited crimes 1995",
-    "SQL": "SELECT COUNT(T1.client_id) FROM client AS T1 INNER JOIN district AS T2 ON T1.district_id = T2.district_id WHERE T1.gender = 'M' AND T2.A15 = (SELECT T3.A15 FROM district AS T3 ORDER BY T3.A15 DESC LIMIT 1, 1)",
-    "difficulty": "moderate"
-  },
-  {
     "question_id": 145,
     "db_id": "financial",
     "question": "Who are the account holder identification numbers whose who have transactions on the credit card with the amount is less than the average, in 1998?",
