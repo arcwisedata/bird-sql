@@ -26,9 +26,18 @@ def _format_column(c: ColumnInfo):
         desc = c.value_description.replace("\n", "\t\n")
         result += f"\nValue description: {desc}"
     if c.sample_values:
-        result += f"\nSample values ({c.unique_count} unique): " + ", ".join(
-            [stringify(v) for v in c.sample_values]
-        )
+        sample_values = ""
+        num_sample_values = 0
+        for sv in c.sample_values:
+            if sample_values:
+                sample_values += ", "
+            sample_values += stringify(sv)
+            num_sample_values += 1
+            if len(sample_values) > 200:
+                break
+        if num_sample_values < c.unique_count:
+            sample_values += ", ..."
+        result += f"\nSample values ({c.unique_count} unique): " + sample_values
     result += f"\nRange: {stringify(c.min_value)} to {stringify(c.max_value)}"
     return result
 
@@ -83,15 +92,34 @@ At the end, provide a table_description (but do not mention the exact row count.
             "content": f'Describe this SQLite table named "{table.name}" with {table.row_count} rows and the following columns:\n\n{column_data}',
         },
     ]
-    result = await litellm.acompletion(
-        model=model,
-        messages=messages,
-        tools=[tool],
-        tool_choice={"type": "function", "function": {"name": "describe_table"}},  # type: ignore
-        temperature=0.0,
-        max_retries=3,
-        timeout=120.0,
-    )
+    try:
+        result = await litellm.acompletion_with_retries(
+            model=model,
+            messages=messages,
+            tools=[tool],
+            tool_choice={"type": "function", "function": {"name": "describe_table"}},  # type: ignore
+            temperature=0.0,
+            max_retries=10,
+            retry_strategy="exponential_backoff_retry",
+            timeout=120.0,
+        )
+    except Exception:
+        table.ai_description = f"{table.row_count} rows"
+        if table.primary_key:
+            table.ai_description += f", primary key: ({', '.join(table.primary_key)})"
+        for column in table.columns:
+            column.ai_description = f"Stats: {column.null_fraction*100:.3g}% null {column.unique_fraction*100:.3g}% unique"
+            if column.description:
+                column.ai_description += f"\n{column.description[:200]}"
+            if column.value_description:
+                column.ai_description += f"\nValue description: {column.value_description[:200]}"
+            else:
+                column.ai_description += (
+                    f"\nSample values ({column.unique_count} unique): "
+                    + ", ".join([stringify(v) for v in column.sample_values])
+                )
+        return
+
     descriptions = json.loads(result.choices[0].message.tool_calls[0].function.arguments)  # type: ignore
 
     table_description: str = descriptions.get("table_description", "")
