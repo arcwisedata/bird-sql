@@ -162,6 +162,14 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                     elif additional_info:
                         value_description = additional_info
 
+            merged_values = (stats.histogram or []) + (stats.most_common_vals or [])
+            try:
+                min_value = min(merged_values, default=None)
+                max_value = max(merged_values, default=None)
+            except Exception:
+                min_value = min([str(x) for x in merged_values], default=None)
+                max_value = max([str(x) for x in merged_values], default=None)
+
             column_info = ColumnInfo(
                 name=column.name,
                 original_name=orig_col_name.strip() if orig_col_name else None,
@@ -173,12 +181,8 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                 unique_count=int(stats.distinct_count),
                 unique_fraction=stats.distinct_percent,
                 sample_values=(stats.most_common_vals or stats.histogram or [])[:10],
-                min_value=min(
-                    (stats.histogram or []) + (stats.most_common_vals or []), default=None
-                ),
-                max_value=max(
-                    (stats.histogram or []) + (stats.most_common_vals or []), default=None
-                ),
+                min_value=min_value,
+                max_value=max_value,
             )
             output_columns.append(column_info)
             all_columns[(db_id, table.name.lower(), column.name.lower())] = (
