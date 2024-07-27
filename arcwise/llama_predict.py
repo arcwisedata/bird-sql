@@ -17,6 +17,7 @@ from vllm import LLM, RequestOutput, SamplingParams
 
 RELEVANCY_THRESHOLD = 0.50
 EMBED_BATCH_SIZE = 128
+MAX_TABLE_TOKENS = 5000
 NUM_VOTES = 7
 MIN_VOTES = 2
 
@@ -48,6 +49,7 @@ async def main(
         trust_remote_code=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
+    nl_token = tokenizer.encode("\n")[-1]
     context_token_limit = max_model_len - 1000  # buffer for prompt + output
     for db_name, db in metadata.items():
         db_questions = [q for q in questions if q.db_id == db_name]
@@ -59,7 +61,20 @@ async def main(
         table_tokens: list[list[int]] = tokenizer(table_schemas, add_special_tokens=False)[
             "input_ids"
         ]  # type: ignore
-        total_tokens = sum(len(tokens) for tokens in table_tokens)
+        total_tokens = 0
+        for i, tokens in enumerate(table_tokens):
+            if len(tokens) > MAX_TABLE_TOKENS:
+                tokens = tokens[:MAX_TABLE_TOKENS]
+                # Find last newline and truncate there
+                for j in range(len(tokens) - 1, 0, -1):
+                    if tokens[j] == nl_token:
+                        tokens = tokens[:j]
+                        break
+                print(
+                    f"Note: truncating table {db_name}.{db.tables[i].name} to {len(tokens)} tokens"
+                )
+                table_schemas[i] = tokenizer.decode(tokens)
+            total_tokens += len(tokens)
 
         table_embeddings = None
         question_embeddings = [None] * len(db_questions)
