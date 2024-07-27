@@ -102,6 +102,7 @@ def main(
     model = FastLanguageModel.get_peft_model(
         model,
         r=128,
+        use_dora=True,
         target_modules=[
             "q_proj",
             "k_proj",
@@ -134,7 +135,7 @@ def main(
         args=TrainingArguments(
             # hyperparameters
             num_train_epochs=1.0,
-            learning_rate=5e-5,
+            learning_rate=1e-4,
             lr_scheduler_type="cosine",
             group_by_length=True,
             per_device_train_batch_size=4,

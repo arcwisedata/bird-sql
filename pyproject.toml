@@ -20,6 +20,7 @@ numpy = "^1.21.2"
 aioboto3 = "^12.3.0"
 func-timeout = "^4.3.5"
 transformers = "^4.42.4"
+tenacity = "^8.5.0"
 
 [tool.poetry.group.retrieval]
 optional = true

@@ -7,6 +7,7 @@ import click
 import litellm
 import numpy as np
 from openai.types.chat import ChatCompletionMessageParam
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from .ddl import Table, get_table_ddl
@@ -298,7 +299,12 @@ async def batch_embed(model: str, text: list[str]) -> np.ndarray:
             )
         )
 
-    embeddings = await litellm.aembedding(model=model, input=text)
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=5, max=30),
+    ):
+        with attempt:
+            embeddings = await litellm.aembedding(model=model, input=text)
     assert embeddings.data and len(embeddings.data) == len(text), "Error getting embeddings"
     data = sorted(embeddings.data, key=lambda x: x["index"])
     return np.array([d["embedding"] for d in data])

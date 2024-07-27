@@ -2,6 +2,7 @@ import json
 import re
 
 import litellm
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .ddl import quote_identifier
 from .typedefs import ColumnInfo, Table
@@ -26,20 +27,24 @@ def _format_column(c: ColumnInfo):
         desc = c.value_description.replace("\n", "\t\n")
         result += f"\nValue description: {desc}"
     if c.sample_values:
-        sample_values = ""
-        num_sample_values = 0
-        for sv in c.sample_values:
-            if sample_values:
-                sample_values += ", "
-            sample_values += stringify(sv)
-            num_sample_values += 1
-            if len(sample_values) > 200:
-                break
-        if num_sample_values < c.unique_count:
-            sample_values += ", ..."
-        result += f"\nSample values ({c.unique_count} unique): " + sample_values
+        result += "\n" + _format_sample_values(c)
     result += f"\nRange: {stringify(c.min_value)} to {stringify(c.max_value)}"
     return result
+
+
+def _format_sample_values(c: ColumnInfo) -> str:
+    sample_values = ""
+    num_sample_values = 0
+    for sv in c.sample_values:
+        if sample_values:
+            sample_values += ", "
+        sample_values += stringify(sv)
+        num_sample_values += 1
+        if len(sample_values) > 200:
+            break
+    if num_sample_values < c.unique_count:
+        sample_values += ", ..."
+    return f"Sample values ({c.unique_count} unique): " + sample_values
 
 
 async def generate_table_and_columns_ai_description(table: Table, model: str):
@@ -93,56 +98,61 @@ At the end, provide a table_description (but do not mention the exact row count.
         },
     ]
     try:
-        result = await litellm.acompletion_with_retries(
-            model=model,
-            messages=messages,
-            tools=[tool],
-            tool_choice={"type": "function", "function": {"name": "describe_table"}},  # type: ignore
-            temperature=0.0,
-            max_retries=10,
-            retry_strategy="exponential_backoff_retry",
-            timeout=120.0,
-        )
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=5, max=30),
+        ):
+            with attempt:
+                result = await litellm.acompletion(
+                    model=model,
+                    messages=messages,
+                    tools=[tool],
+                    tool_choice={"type": "function", "function": {"name": "describe_table"}},  # type: ignore
+                    temperature=0.0,
+                    timeout=60.0,
+                )
         descriptions = json.loads(result.choices[0].message.tool_calls[0].function.arguments)  # type: ignore
     except Exception:
-        table.ai_description = f"{table.row_count} rows"
-        if table.primary_key:
-            table.ai_description += f", primary key: ({', '.join(table.primary_key)})"
+        table.ai_description = _get_table_description(table, "")
         for column in table.columns:
-            column.ai_description = f"Stats: {column.null_fraction*100:.3g}% null {column.unique_fraction*100:.3g}% unique"
+            description = ""
             if column.description:
-                column.ai_description += f"\n{column.description[:200]}"
+                description += f"\n{column.description[:200]}"
             if column.value_description:
-                column.ai_description += f"\nValue description: {column.value_description[:200]}"
+                description += f"\nValue description: {column.value_description[:200]}"
             else:
-                column.ai_description += (
-                    f"\nSample values ({column.unique_count} unique): "
-                    + ", ".join([stringify(v) for v in column.sample_values])
-                )
+                description += "\n" + _format_sample_values(column)
+            column.ai_description = _get_column_description(column, description.strip())
         return
 
     table_description: str = descriptions.get("table_description", "")
+    table.ai_description = _get_table_description(table, table_description)
+
+    for column in table.columns:
+        ai_description = descriptions.get(_normalize_for_json(column.name) + "-description") or ""
+        column.ai_description = _get_column_description(column, ai_description)
+
+
+def _get_table_description(table: Table, table_description: str) -> str:
     if table_description:
         table_description += "\n"
     table_description += f"{table.row_count} rows"
     if table.primary_key:
         table_description += f", primary key: ({', '.join(table.primary_key)})"
-    table.ai_description = table_description
+    return table_description
 
-    for column in table.columns:
-        ai_description = descriptions.get(_normalize_for_json(column.name) + "-description") or ""
-        if ai_description:
-            ai_description += "\n"
-        ai_description += (
-            f"Stats: {column.null_fraction*100:.3g}% null {column.unique_fraction*100:.3g}% unique"
+
+def _get_column_description(column: ColumnInfo, ai_description: str) -> str:
+    if ai_description:
+        ai_description += "\n"
+    ai_description += (
+        f"Stats: {column.null_fraction*100:.3g}% null {column.unique_fraction*100:.3g}% unique"
+    )
+    if column.foreign_keys:
+        ai_description += "\nForeign keys: " + ", ".join(
+            [
+                f"{quote_identifier(fk.reference_table)}.{quote_identifier(fk.reference_column)} ({fk.relationship})"
+                for fk in column.foreign_keys
+            ]
         )
-        if column.foreign_keys:
-            if ai_description:
-                ai_description += "\n"
-            ai_description += "Foreign keys: " + ", ".join(
-                [
-                    f"{quote_identifier(fk.reference_table)}.{quote_identifier(fk.reference_column)} ({fk.relationship})"
-                    for fk in column.foreign_keys
-                ]
-            )
-        column.ai_description = ai_description
+    return ai_description
