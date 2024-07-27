@@ -103,6 +103,7 @@ At the end, provide a table_description (but do not mention the exact row count.
             retry_strategy="exponential_backoff_retry",
             timeout=120.0,
         )
+        descriptions = json.loads(result.choices[0].message.tool_calls[0].function.arguments)  # type: ignore
     except Exception:
         table.ai_description = f"{table.row_count} rows"
         if table.primary_key:
@@ -119,8 +120,6 @@ At the end, provide a table_description (but do not mention the exact row count.
                     + ", ".join([stringify(v) for v in column.sample_values])
                 )
         return
-
-    descriptions = json.loads(result.choices[0].message.tool_calls[0].function.arguments)  # type: ignore
 
     table_description: str = descriptions.get("table_description", "")
     if table_description:
