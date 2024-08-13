@@ -65,7 +65,7 @@ def main(
     from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
     from unsloth import FastLanguageModel
 
-    max_seq_length = 9216
+    max_seq_length = 20_000
     train_data = load_dataset("json", data_files=train_path, split="train")
     eval_data = load_dataset("json", data_files=eval_path, split="train")
 
@@ -77,20 +77,16 @@ def main(
     )
 
     def formatting_prompts_func(examples):
-        messages = examples["messages"]
         return {
-            "text": [
-                tokenizer.apply_chat_template(
-                    convo,
-                    tokenize=False,
-                    add_generation_prompt=False,
-                )
-                for convo in messages
-            ]
+            "text": tokenizer.apply_chat_template(
+                examples["messages"],
+                tokenize=False,
+                add_generation_prompt=False,
+            )
         }
 
-    train_data = train_data.map(formatting_prompts_func, batched=True)
-    eval_data = eval_data.map(formatting_prompts_func, batched=True)
+    train_data = train_data.map(formatting_prompts_func)
+    eval_data = eval_data.map(formatting_prompts_func)
 
     # Only train & evaluate on assistant outputs
     collator = DataCollatorForCompletionOnlyLM(
@@ -102,7 +98,6 @@ def main(
     model = FastLanguageModel.get_peft_model(
         model,
         r=128,
-        use_dora=True,
         target_modules=[
             "q_proj",
             "k_proj",
@@ -138,11 +133,10 @@ def main(
             learning_rate=1e-4,
             lr_scheduler_type="cosine",
             group_by_length=True,
-            per_device_train_batch_size=4,
-            gradient_accumulation_steps=4,
+            per_device_train_batch_size=2,
+            gradient_accumulation_steps=8,
             warmup_steps=10,
             optim="adamw_8bit",
-            neftune_noise_alpha=5,
             seed=42,
             fp16=False,
             bf16=True,
@@ -151,7 +145,7 @@ def main(
             eval_strategy="steps",
             bf16_full_eval=True,
             eval_steps=0.2,
-            eval_on_start=True,
+            eval_on_start=False,
             # saving/logging
             logging_steps=1,
             output_dir="/runs/" + run_name,
