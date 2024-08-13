@@ -1,3 +1,4 @@
+# type: ignore
 from datetime import datetime
 import os
 import subprocess
@@ -9,7 +10,7 @@ app = modal.App("bird-run")
 # Carbon copy of ./Dockerfile (sadly from_dockerfile doesn't work)
 app_image = (
     modal.Image.from_registry(
-        "vllm/vllm-openai:v0.5.2",
+        "vllm/vllm-openai:v0.5.4",
         setup_dockerfile_commands=[
             "RUN ln -s /usr/bin/python3 /usr/bin/python",  # Modal requires `python`
             "ENTRYPOINT []",  # Reset entrypoint for Modal to work
@@ -18,11 +19,6 @@ app_image = (
     .apt_install("bash", "curl", "make", "git", "gcc", "g++", "sqlite3")
     .poetry_install_from_file("pyproject.toml")
     .workdir("/app")
-    # TODO: remove after vllm v0.5.3 (for Mistral Nemo)
-    .copy_local_file(
-        "vllm_llama_patched.py",
-        "/usr/local/lib/python3.10/dist-packages/vllm/model_executor/models/llama.py",
-    )
     .copy_local_dir("arcwise", "arcwise")
     .copy_local_file("run.sh")
 )
