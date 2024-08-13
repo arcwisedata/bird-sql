@@ -21,7 +21,7 @@ from .execute_sql import (
 from .prompts import SYSTEM_PROMPT
 from .utils import ChatCompletionMessageParam, EvaluationResult, SQLContext
 from ..utils import stringify
-from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionMessageToolCallParam
 
 
 MAX_ITERATIONS = 10
@@ -69,14 +69,26 @@ async def agent_loop(
         message = response.choices[0].message
         if message.content:
             logger.info(f"Assistant response: {message.content}")
-        message_log.append(message.model_dump())  # type: ignore
+        raw_message: ChatCompletionMessageParam = message.model_dump()  # type: ignore
 
-        if not (tool_calls := getattr(message, "tool_calls", None)):
+        # Detect/fix Azure multi tool use issue
+        tool_calls = list(raw_message.get("tool_calls") or [])
+        if (
+            raw_message["role"] == "assistant"
+            and len(tool_calls) == 1
+            and tool_calls[0]["function"]["name"] == "multi_tool_use.parallel"
+        ):
+            tool_calls = parse_multi_tool_call(tool_calls[0])
+            raw_message["tool_calls"] = tool_calls
+
+        message_log.append(raw_message)
+        if not tool_calls:
             last_tool_call_json = next(
                 (
-                    tcs[0]  # type: ignore
+                    tc
                     for message in message_log[-1:0:-1]
                     if (tcs := message.get("tool_calls"))
+                    for tc in tcs
                 ),
                 None,
             )
@@ -97,10 +109,10 @@ async def agent_loop(
                 else:
                     message_log.append(final_answer_tool_call_user_message)
 
-        for tool_call in tool_calls or []:
+        for tool_call in tool_calls:
             try:
                 arguments = ExecuteSQLToolArguments.model_validate_json(
-                    tool_call.function.arguments
+                    tool_call["function"]["arguments"]
                 )
                 logger.info(f"Executing SQL: {arguments.query_description}\n{arguments.sql}")
                 gpt_result, tool_result = await execute_sql_tool(
@@ -124,7 +136,7 @@ async def agent_loop(
                 tool_result = ExecuteSQLToolResult(error=gpt_result)
 
             message_log.append(
-                {"role": "tool", "tool_call_id": tool_call.id, "content": gpt_result}
+                {"role": "tool", "tool_call_id": tool_call["id"], "content": gpt_result}
             )
 
     return message_log, final_sql_result
@@ -260,6 +272,8 @@ def _get_router() -> Router:
                         "api_key": azure_api_key,
                         "api_base": os.getenv("AZURE_API_BASE"),
                         "api_version": os.getenv("AZURE_API_VERSION"),
+                        "tpm": 900_000,
+                        "rpm": 5400,
                     },
                 }
             )
@@ -273,6 +287,8 @@ def _get_router() -> Router:
                             "api_key": f"{key_int ^ 286020490714935625715931202892876182841:x}",
                             "api_base": "https://arcwise-ai-uswest.openai.azure.com",
                             "api_version": os.getenv("AZURE_API_VERSION"),
+                            "tpm": 450_000,
+                            "rpm": 2700,
                         },
                     }
                 )
@@ -302,3 +318,29 @@ def _get_router() -> Router:
         disable_cooldowns=True,
         retry_after=10,
     )
+
+
+def parse_multi_tool_call(
+    tool_call: ChatCompletionMessageToolCallParam,
+) -> list[ChatCompletionMessageToolCallParam]:
+    try:
+        arguments = json.loads(tool_call["function"]["arguments"])
+        raw_tool_calls = []
+        id = tool_call["id"]
+        # arguments should be: {"tool_uses":[{"recipient_name":"functions.generate_and_execute_sql","parameters":{...}}]}
+        for i, tool_uses in enumerate(arguments["tool_uses"]):
+            recipient_name = tool_uses["recipient_name"]
+            parameters = tool_uses["parameters"]
+            raw_tool_call: ChatCompletionMessageToolCallParam = {
+                "id": f"{id}__{i}",
+                "type": "function",
+                "function": {
+                    "name": recipient_name.removeprefix("functions."),
+                    "arguments": json.dumps(parameters),
+                },
+            }
+            raw_tool_calls.append(raw_tool_call)
+
+        return raw_tool_calls
+    except Exception:
+        return [tool_call]

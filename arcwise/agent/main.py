@@ -119,7 +119,8 @@ async def main(
         if total % 10 == 0:
             _write_report(results, report_file)
 
-    print(f"Final EX score: {ex_correct / total:.2%}")
+    if ex_correct:
+        print(f"Final EX score: {ex_correct / total:.2%}")
     print(f"Exceptions: {exceptions}")
     _write_report(results, report_file)
 
@@ -129,6 +130,7 @@ async def main(
         }
         with open(output_file, "w") as f:
             json.dump(predicted_sql, f, indent=2)
+        print(f"Successfully saved predictions to {output_file}")
 
 
 def _write_report(results: list[dict[str, Any]], report_file: str) -> None:
