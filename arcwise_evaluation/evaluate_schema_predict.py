@@ -17,19 +17,7 @@ async def main(
     questions = load_questions(predictions_file)
     metadata = load_database_metadata(metadata_file)
 
-    total = 0
-    correct = 0
-    hallucinations = 0
-    output_match_sum = 0
-    table_precision_sum = 0
-    table_recall_sum = 0
-    table_match_sum = 0
-    column_precision_sum = 0
-    column_recall_sum = 0
-    column_match_sum = 0
-    column_ratio = 0
-    table_ratio = 0
-
+    stats = []
     for question in questions:
         if (
             not question.SQL
@@ -49,87 +37,93 @@ async def main(
             print(f"Failed to extract schema for {question.question_id}")
             continue
 
-        total += 1
         golden_column = set(sql_refs.columns)
         golden_table = set(sql_refs.tables)
-        all_columns = {
-            f"{table.name}.{column.name}"
-            for table in metadata[db_id].tables
-            for column in table.columns
-        }
-
-        predicted_output_schema = [
-            c.type for c in question.schema_predictions.output_types
-        ]
-        predicted_column = set(
-            c.column for c in question.schema_predictions.input_columns
-        )
+        predicted_output_schema = [c.type for c in question.schema_predictions.output_types]
+        if not predicted_output_schema:
+            print(f"Warning: no output schema for {question.question}")
+        predicted_column = set(c.column for c in question.schema_predictions.input_columns)
         predicted_table = set(
             c.column.split(".")[0] for c in question.schema_predictions.input_columns
         )
-        # lines = question.schema_predictions.raw_prediction.splitlines()
-        # output_index = lines.index("Input Columns")
-        # for line in lines[:output_index]:
-        #     if not line.startswith("--"):
-        #         predicted_output_schema.append(line)
-        # for line in lines[output_index + 1 :]:
-        #     if not line.startswith("--"):
-        #         if line not in all_columns:
-        #             print(f"Hallucinated column in {question.question_id}: {line}")
-        #             hallucinations += 1
-        #         else:
-        #             predicted_table.add(line.split(".")[0])
-        #             predicted_column.add(line)
-
+        for table in metadata[db_id].tables:
+            ref_tables = set()
+            if table.name in predicted_table:
+                for column in table.primary_key:
+                    predicted_column.add(f"{table.name}.{column}")
+                for column in table.columns:
+                    for fk in column.foreign_keys:
+                        predicted_column.add(f"{table.name}.{column.name}")
+                        predicted_column.add(f"{fk.reference_table}.{fk.reference_column}")
+                        ref_tables.add(fk.reference_table)
+        for table in metadata[db_id].tables:
+            if table.name in ref_tables:
+                for column in table.primary_key:
+                    predicted_column.add(f"{table.name}.{column}")
+        predicted_table.update(ref_tables)
         output_match = sql_refs.output_schema == predicted_output_schema
-        output_match_sum += int(output_match)
-
-        # Calculate table precision and recall
-        correct += int(
-            output_match
-            and golden_table <= predicted_table
-            and golden_column <= predicted_column
-        )
-
-        # Calculate common intersections
         table_intersection = len(predicted_table & golden_table)
         column_intersection = len(predicted_column & golden_column)
 
         # Calculate table precision and recall
-        table_precision = (
-            table_intersection / len(predicted_table) if predicted_table else 0.0
+        stats.append(
+            {
+                "db_id": db_id,
+                "all_correct": int(
+                    output_match
+                    and golden_table <= predicted_table
+                    and golden_column <= predicted_column
+                ),
+                "output_correct": int(output_match),
+                "table_precision": (
+                    table_intersection / len(predicted_table) if predicted_table else 0.0
+                ),
+                "table_recall": table_intersection / len(golden_table),
+                "table_correct": int(golden_table <= predicted_table),
+                "column_precision": (
+                    column_intersection / len(predicted_column) if predicted_column else 0.0
+                ),
+                "column_recall": column_intersection / len(golden_column),
+                "column_correct": int(golden_column <= predicted_column),
+                "column_ratio": len(predicted_column) / len(golden_column),
+                "table_ratio": len(predicted_table) / len(golden_table),
+            }
         )
-        table_recall = table_intersection / len(golden_table)
-        table_match_sum += golden_table <= predicted_table
-        table_precision_sum += table_precision
-        table_recall_sum += table_recall
 
-        # # Calculate column precision and recall
-        column_precision = (
-            column_intersection / len(predicted_column) if predicted_column else 0.0
+    for db_id in [None, *metadata.keys()]:
+        filtered_stats = (
+            stats if db_id is None else [stat for stat in stats if stat["db_id"] == db_id]
         )
-        column_recall = column_intersection / len(golden_column)
-        column_match_sum += golden_column <= predicted_column
-        column_precision_sum += column_precision
-        column_recall_sum += column_recall
+        total = len(filtered_stats)
 
-        column_ratio += len(predicted_column) / len(golden_column)
-        table_ratio += len(predicted_table) / len(golden_table)
+        if total == 0:
+            continue
 
-    print("Correct\tOutput OK\tTables OK\tColumns OK")
-    print(
-        f"{correct/total:.2%}\t{output_match_sum/total:.2%}\t{table_match_sum/total:.2%}\t{column_match_sum/total:.2%}"
-    )
+        correct = sum(stat["all_correct"] for stat in filtered_stats)
+        output_match_sum = sum(stat["output_correct"] for stat in filtered_stats)
+        table_match_sum = sum(stat["table_correct"] for stat in filtered_stats)
+        column_match_sum = sum(stat["column_correct"] for stat in filtered_stats)
+        table_recall_sum = sum(stat["table_recall"] for stat in filtered_stats)
+        column_recall_sum = sum(stat["column_recall"] for stat in filtered_stats)
+        table_precision_sum = sum(stat["table_precision"] for stat in filtered_stats)
+        column_precision_sum = sum(stat["column_precision"] for stat in filtered_stats)
+        column_ratio = sum(stat["column_ratio"] for stat in filtered_stats)
+        table_ratio = sum(stat["table_ratio"] for stat in filtered_stats)
 
-    print("Table recall\tColumn recall\tTable precision\tColumn precision")
-    print(
-        f"{table_recall_sum/total:.2%}\t{column_recall_sum/total:.2%}\t{table_precision_sum/total:.2%}\t{column_precision_sum/total:.2%}"
-    )
+        print(f"Database: {db_id or 'all databases'}:")
+        print("Correct\tOutput OK\tTables OK\tColumns OK")
+        print(
+            f"{correct/total:.2%}\t{output_match_sum/total:.2%}\t{table_match_sum/total:.2%}\t{column_match_sum/total:.2%}"
+        )
 
-    print("Column selection ratio\tTable selection ratio")
-    print(f"{column_ratio/total:.2f}x\t{table_ratio/total:.2f}x")
+        print("Table recall\tColumn recall\tTable precision\tColumn precision")
+        print(
+            f"{table_recall_sum/total:.2%}\t{column_recall_sum/total:.2%}\t{table_precision_sum/total:.2%}\t{column_precision_sum/total:.2%}"
+        )
 
-    print(f"Hallucinations\t{hallucinations}")
+        print("Column selection ratio\tTable selection ratio")
+        print(f"{column_ratio/total:.2f}x\t{table_ratio/total:.2f}x")
+        print("--------")
 
 
 if __name__ == "__main__":

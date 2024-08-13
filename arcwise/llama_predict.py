@@ -1,25 +1,20 @@
-import asyncio
 from collections import defaultdict
 import json
 import random
 
 import click
-import litellm
 import numpy as np
 from openai.types.chat import ChatCompletionMessageParam
-from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
 from .ddl import Table, get_table_ddl
+from .embedding import batch_embed
 from .typedefs import BIRDQuestion, Database, SchemaPredictions
 from .utils import coro, load_database_metadata, load_questions
 from vllm import LLM, RequestOutput, SamplingParams
 
-RELEVANCY_THRESHOLD = 0.50
-EMBED_BATCH_SIZE = 128
-MAX_TABLE_TOKENS = 5000
 NUM_VOTES = 7
-MIN_VOTES = 2
+MIN_VOTES = 1
 
 
 @click.command()
@@ -49,7 +44,6 @@ async def main(
         trust_remote_code=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
-    nl_token = tokenizer.encode("\n")[-1]
     context_token_limit = max_model_len - 1000  # buffer for prompt + output
     for db_name, db in metadata.items():
         db_questions = [q for q in questions if q.db_id == db_name]
@@ -61,20 +55,7 @@ async def main(
         table_tokens: list[list[int]] = tokenizer(table_schemas, add_special_tokens=False)[
             "input_ids"
         ]  # type: ignore
-        total_tokens = 0
-        for i, tokens in enumerate(table_tokens):
-            if len(tokens) > MAX_TABLE_TOKENS:
-                tokens = tokens[:MAX_TABLE_TOKENS]
-                # Find last newline and truncate there
-                for j in range(len(tokens) - 1, 0, -1):
-                    if tokens[j] == nl_token:
-                        tokens = tokens[:j]
-                        break
-                print(
-                    f"Note: truncating table {db_name}.{db.tables[i].name} to {len(tokens)} tokens"
-                )
-                table_schemas[i] = tokenizer.decode(tokens)
-            total_tokens += len(tokens)
+        total_tokens = sum(len(tokens) for tokens in table_tokens)
 
         table_embeddings = None
         question_embeddings = [None] * len(db_questions)
@@ -119,8 +100,8 @@ def _format_table(table: Table) -> str:
     schema = "-- " + table.ai_description.replace("\n", "\n-- ") + "\n# Table: {table.name}"
 
     for col in table.columns:
-        assert col.ai_description, "AI descriptions are required"
-        schema += "\n-- " + col.ai_description.replace("\n", "\n-- ")
+        if col.ai_description:
+            schema += "\n-- " + col.ai_description.replace("\n", "\n-- ")
         schema += f"\n{table.name}.{col.name}\t{col.type.upper()}"
 
     return schema
@@ -141,8 +122,6 @@ def _create_prompt(
         token_usage = 0
         relevancy = np.dot(table_embeddings, question_embedding)
         for index, score in sorted(enumerate(relevancy), key=lambda x: -x[1]):
-            if score < RELEVANCY_THRESHOLD and len(selected_tables) > 0:
-                break
             selected_tables.append(db.tables[index])
             tokens_to_add: list[int] = table_tokens[index]
             if token_usage + len(tokens_to_add) > token_limit:
@@ -161,7 +140,7 @@ def _create_prompt(
     return SCHEMA_PREDICTION_PROMPT + [
         {
             "role": "user",
-            "content": f"""Given the database:
+            "content": f"""Given a database named {db.name}:
 <schema>
 {schema}
 </schema>
@@ -266,11 +245,13 @@ Ensure that the output types provide exactly the information needed to answer th
 <schema>
 -- Table containing sales info
 # Table: sales
+-- Date of sale
 sales.sale_date\tDATE
 sales.product_id\tINTEGER
 sales.quantity\tREAL
 -- Daily prices for each product
 # Table: prices
+-- Date of recorded price
 prices.price_date\tDATE
 prices.product_id\tINTEGER
 prices.price\tREAL
@@ -301,28 +282,6 @@ products.product_id
 products.product_name""",
     },
 ]
-
-
-async def batch_embed(model: str, text: list[str]) -> np.ndarray:
-    if len(text) > EMBED_BATCH_SIZE:
-        return np.concatenate(
-            await asyncio.gather(
-                *[
-                    batch_embed(model, text[i : i + EMBED_BATCH_SIZE])
-                    for i in range(0, len(text), EMBED_BATCH_SIZE)
-                ]
-            )
-        )
-
-    async for attempt in AsyncRetrying(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=5, max=30),
-    ):
-        with attempt:
-            embeddings = await litellm.aembedding(model=model, input=text)
-    assert embeddings.data and len(embeddings.data) == len(text), "Error getting embeddings"
-    data = sorted(embeddings.data, key=lambda x: x["index"])
-    return np.array([d["embedding"] for d in data])
 
 
 if __name__ == "__main__":

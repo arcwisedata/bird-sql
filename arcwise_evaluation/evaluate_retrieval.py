@@ -1,53 +1,39 @@
 import json
 import math
 import os
-import shelve
-from contextlib import aclosing
+import pickle
+import sys
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
-from functools import partial
+from multiprocessing import shared_memory
 
-import asyncio
 import click
+import numpy as np
 from dotenv import load_dotenv
-from llama_index.core import Document, VectorStoreIndex
-from llama_index.core.embeddings import BaseEmbedding
-from llama_index.core.node_parser import TokenTextSplitter
-from llama_index.core.vector_stores.types import VectorStoreQuery
-from llama_index.embeddings.bedrock import BedrockEmbedding
-from llama_index.embeddings.bedrock import Models as BedrockModels
-from llama_index.embeddings.gemini import GeminiEmbedding
-from llama_index.embeddings.openai import OpenAIEmbedding, OpenAIEmbeddingModeModel
-from llama_index.embeddings.voyageai import VoyageEmbedding
-from llama_index.vector_stores.duckdb import DuckDBVectorStore
 from tqdm.asyncio import tqdm
 from transformers import AutoTokenizer
 
 from arcwise.ddl import get_table_ddl
+from arcwise.embedding import batch_embed
 from arcwise.sql_references import extract_sql_references
-from arcwise.typedefs import Table
+from arcwise.typedefs import Database, Table
 from arcwise.utils import (
     BIRDQuestion,
     coro,
     load_database_metadata,
     load_questions,
-    run_with_concurrency,
 )
 
 load_dotenv()
 
-EMBED_MODELS: dict[str, BaseEmbedding] = {
-    "gemini": GeminiEmbedding("models/text-embedding-004"),
-    "bedrock": BedrockEmbedding(
-        model_name=BedrockModels.COHERE_EMBED_ENGLISH_V3, region_name="us-west-2"
-    ),
-    "openai_large": OpenAIEmbedding(model=OpenAIEmbeddingModeModel.TEXT_EMBED_3_LARGE),
-    "openai_small": OpenAIEmbedding(model=OpenAIEmbeddingModeModel.TEXT_EMBED_3_SMALL),
-    "voyage": VoyageEmbedding(model_name="voyage-code-2"),
+MODEL_NAMES = {
+    "gemini": "",
+    "bedrock": "",
+    "openai_large": "text-embedding-3-large",
+    "openai_small": "text-embedding-3-small",
+    "voyage": "voyage/voyage-code-2",
 }
-QUERY_EMBED_MODELS = {
-    # Gemini doesn't do the task_type switching automatically :\
-    "gemini": GeminiEmbedding("models/text-embedding-004", task_type="question_answering"),
-}
+
 MODEL_LIMITS = {
     "gemini": 8000,
     "bedrock": 8000,
@@ -69,7 +55,7 @@ def _get_document(table: Table, method: str | None) -> str:
 @click.option("--metadata-file", help="Path to JSON metadata", required=True)
 @click.option("--persist-dir", help="Persistence path", default="retrieval_storage")
 @click.option("--model", help="Model identifier", required=True)
-@click.option("--method", help="Method")
+@click.option("--method", help="Embedding method")
 @click.option("--context-limit", help="Simulated context limit", default=8000)
 @coro
 async def main(
@@ -81,82 +67,54 @@ async def main(
     context_limit: int,
 ) -> None:
     metadata = load_database_metadata(metadata_file)
-    dumb_splitter = TokenTextSplitter(chunk_size=999999)
-    embed_model = EMBED_MODELS[model]
-    model_limit = MODEL_LIMITS[model]
-    test_embedding = await embed_model.aget_query_embedding("test")
+    questions = load_questions(questions_file)
+    documents = {
+        f"{db.name}.{table.name}": _get_document(table, method)
+        for db in metadata.values()
+        for table in db.tables
+    }
+    queries = {_question_key(model, q): q.question_evidence() for q in questions}
 
-    ddb_path = model + ("." + method if method else "") + ".duckdb"
-    if os.path.exists(persist_dir + "/" + ddb_path):
-        store = DuckDBVectorStore.from_local(persist_dir + "/" + ddb_path)
-        existing_ids = set(
-            store.query(VectorStoreQuery(query_embedding=test_embedding, similarity_top_k=9999)).ids
-            or []
-        )
-    else:
-        store = DuckDBVectorStore(ddb_path, persist_dir=persist_dir)
-        existing_ids = set()
+    docs_cache_path = persist_dir + "/" + f"{model}_docs.pkl"
+    query_cache_path = persist_dir + "/" + f"{model}_queries.pkl"
+    print("Getting document embeddings", file=sys.stderr)
+    doc_embeddings = await _get_embeddings(documents, docs_cache_path, model)
+    print("Getting question embeddings", file=sys.stderr)
+    question_embeddings = await _get_embeddings(queries, query_cache_path, model)
+    print("Calculating token counts", file=sys.stderr)
+    table_token_counts = _calculate_token_counts(persist_dir, metadata)
 
-    index = VectorStoreIndex.from_vector_store(store, embed_model=embed_model)
-    for db_name, db in tqdm(metadata.items()):
-        docs = [
-            Document(
-                doc_id=db_name + "." + table.name,
-                text=_get_document(table, method)[:model_limit],
+    shm_name = "shared_memory"
+    embedding_size = len(next(iter(doc_embeddings.values())))
+    d_size = np.dtype(np.float64).itemsize * len(doc_embeddings) * embedding_size
+    shm = shared_memory.SharedMemory(create=True, size=d_size, name=shm_name)
+    doc_embeddings_np = np.ndarray(
+        shape=(len(doc_embeddings), embedding_size), dtype=np.float64, buffer=shm.buf
+    )
+    for i, embedding in enumerate(doc_embeddings.values()):
+        doc_embeddings_np[i] = embedding
+
+    with ProcessPoolExecutor() as executor:
+        print("Running evaluation", file=sys.stderr)
+        futures = [
+            executor.submit(
+                _process_question,
+                question,
+                metadata[question.db_id].tables,
+                question_embeddings[_question_key(model, question)],
+                list(doc_embeddings.keys()),
+                doc_embeddings_np.shape,
+                shm_name,
+                table_token_counts,
+                context_limit,
             )
-            for table in db.tables
-            if db_name + "." + table.name not in existing_ids
+            for question in questions
+            if question.db_id in ["works_cycles", "hockey"]
         ]
-        if not docs:
-            continue
-        nodes = dumb_splitter.get_nodes_from_documents(docs)
-        assert len(nodes) == len(docs)
-        for node in nodes:
-            assert node.source_node
-            node.id_ = node.source_node.node_id
-        index.insert_nodes(nodes)
-
-    token_count_cache = persist_dir + "/token_counts.json"
-    if os.path.exists(token_count_cache):
-        with open(persist_dir + "/token_counts.json") as f:
-            token_counts = json.load(f)
-    else:
-        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B")
-        ids = []
-        tables = []
-        for db in metadata.values():
-            for table in db.tables:
-                ids.append(f"{db.name}.{table.name}")
-                tables.append(get_table_ddl(table))
-        table_token_counts = tokenizer(tables, return_length=True)["length"]
-        token_counts: dict[str, int] = dict(zip(ids, table_token_counts))  # type: ignore
-        with open(persist_dir + "/token_counts.json", "w") as f:
-            json.dump(token_counts, f)
-
-    with shelve.open(persist_dir + "/embedding_cache") as cache:
-        query_embed_model = QUERY_EMBED_MODELS.get(model, embed_model)
-        questions = load_questions(questions_file)
-        async with aclosing(
-            run_with_concurrency(
-                [
-                    partial(
-                        _process_question,
-                        question,
-                        metadata[question.db_id].tables,
-                        query_embed_model,
-                        store,
-                        token_counts,
-                        cache,
-                        context_limit,
-                    )
-                    for question in questions
-                ],
-                concurrency=8,
-            )
-        ) as results:
-            print("db_id\tquestion_id\tquestion\tsql\trecall\tcorrectness\tndcg\tnotes")
-            async for _ in tqdm(results):  # type: ignore
-                pass
+        print("db_id\tquestion_id\tquestion\tsql\trecall\tcorrectness\tndcg\tnotes")
+        for future in tqdm(futures):
+            if line := future.result():
+                print(line)
 
 
 @dataclass
@@ -167,38 +125,37 @@ class EvalResult:
     notes: str
 
 
-async def _process_question(
+def _process_question(
     question: BIRDQuestion,
     tables: list[Table],
-    embed_model: BaseEmbedding,
-    store: DuckDBVectorStore,
-    token_counts: dict[str, int],
-    cache: shelve.Shelf,
+    question_embedding: list[float],
+    document_ids: list[str],
+    documents_shape: tuple[int, ...],
+    documents_shm: str,
+    table_token_counts: dict[str, int],
     context_limit: int,
-) -> None:
-    assert question.SQL, "can't evaluate without golden SQL"
-    sql_refs = extract_sql_references("", tables, question.SQL, query_runtime_types=False)
-    q = question.question.strip()
-    if question.evidence:
-        q += f" Context: {question.evidence.strip()}"
+) -> str:
+    q = question.question_evidence()
     q_clean = q.replace("\n", " ")
     question_fields = f"{question.db_id}\t{question.question_id}\t{q_clean}\t{question.SQL}"
+    shm = shared_memory.SharedMemory(name=documents_shm)
+    doc_embeddings = np.ndarray(documents_shape, dtype=np.float64, buffer=shm.buf)
 
     try:
-        cache_key = embed_model.model_name + "_text:" + q
-        if not (embedding := cache.get(cache_key)):
-            embedding = await embed_model.aget_text_embedding(q)
-            cache[cache_key] = embedding
-        retrieved = await asyncio.to_thread(
-            lambda: store.query(VectorStoreQuery(query_embedding=embedding, similarity_top_k=9999))
-        )
-        assert retrieved.ids and retrieved.similarities
-        token_count = 0
+        assert question.SQL, "can't evaluate without golden SQL"
+        sql_refs = extract_sql_references("", tables, question.SQL or "", query_runtime_types=False)
+
         retrieved_ids = []
-        for id, _similarity in zip(retrieved.ids, retrieved.similarities):
-            size = token_counts[id]
-            if token_count + size > context_limit:
+        token_count = 0
+        relevancy = np.dot(doc_embeddings, question_embedding)
+        for index, _score in sorted(enumerate(relevancy), key=lambda x: -x[1]):
+            id = document_ids[index]
+            if not id.startswith(question.db_id + "."):
                 continue
+            size = table_token_counts[id]
+            if token_count + size > context_limit:
+                # TODO: need to give this a partial score
+                break
             token_count += size
             retrieved_ids.append(id)
         relevant_ids = set(f"{question.db_id}.{table}" for table in sql_refs.tables)
@@ -217,12 +174,71 @@ async def _process_question(
         ndcg = dcg / idcg if idcg > 0 else 0
 
         missing = relevant_ids - retrieved_id_set
-        notes = ""
+        notes = f"retrieved={len(retrieved_ids)} relevant={len(relevant_ids)}"
         if missing:
-            notes = "Missing: " + ",".join([x.split(".", 1)[1] for x in missing])
-        print(f"{question_fields}\t{recall}\t{correctness}\t{ndcg}\t{notes}")
-    except Exception as e:
-        print(f"{question_fields}\t0\t0\t0\tException: {e}")
+            notes += " missing=" + ",".join([x.split(".", 1)[1] for x in missing])
+        return f"{question_fields}\t{recall}\t{correctness}\t{ndcg}\t{notes}"
+    except Exception as _e:
+        # Usually this is a SQL error - ignore it
+        return ""
+        # return f"{question_fields}\t0\t0\t0\tException: {e}"
+
+
+def _question_key(model: str, question: BIRDQuestion) -> str:
+    return f"{model}_text:{question.question_evidence()}"
+
+
+async def _get_embeddings(
+    documents: dict[str, str],
+    cache_path: str,
+    model: str,
+) -> dict[str, list[float]]:
+    cached_embeddings = {}
+    try:
+        with open(cache_path, "rb") as f:
+            cached_embeddings = pickle.load(f)
+    except Exception:
+        pass
+
+    uncached_docs: list[str] = []
+    uncached_keys = []
+    embeddings: dict[str, list[float]] = {}
+    for key, document in documents.items():
+        if embedding := cached_embeddings.get(key):
+            embeddings[key] = embedding
+        else:
+            uncached_docs.append(document)
+            uncached_keys.append(key)
+
+    if uncached_docs:
+        result = await batch_embed(MODEL_NAMES[model], uncached_docs)
+        for key, embedding in zip(uncached_keys, result.tolist()):
+            embeddings[key] = cached_embeddings[key] = embedding
+
+        with open(cache_path, "wb") as f:
+            pickle.dump(cached_embeddings, f)
+
+    return embeddings
+
+
+def _calculate_token_counts(persist_dir: str, metadata: dict[str, Database]) -> dict[str, int]:
+    token_count_cache = persist_dir + "/token_counts.json"
+    if os.path.exists(token_count_cache):
+        with open(persist_dir + "/token_counts.json") as f:
+            token_counts = json.load(f)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained("arcwise/bird-mistral-nemo")
+        ids = []
+        tables = []
+        for db in metadata.values():
+            for table in db.tables:
+                ids.append(f"{db.name}.{table.name}")
+                tables.append(get_table_ddl(table))
+        table_token_counts = tokenizer(tables, return_length=True)["length"]
+        token_counts: dict[str, int] = dict(zip(ids, table_token_counts))  # type: ignore
+        with open(persist_dir + "/token_counts.json", "w") as f:
+            json.dump(token_counts, f)
+    return token_counts
 
 
 if __name__ == "__main__":
