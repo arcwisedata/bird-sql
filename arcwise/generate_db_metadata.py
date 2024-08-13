@@ -15,7 +15,10 @@ import pandas as pd
 from fastapi.encoders import jsonable_encoder
 from tqdm import tqdm
 
-from .ai_describe_table import generate_table_and_columns_ai_description
+from .ai_describe_table import (
+    generate_table_and_columns_ai_description,
+    use_pregenerated_descriptions,
+)
 from .index_db_tables import index_db_tables, DatabaseTable
 from .typedefs import ColumnInfo, Database, ForeignKey, Table
 from .utils import coro, run_with_concurrency
@@ -284,6 +287,7 @@ def read_table_description(db_path: str, db_id: str, table_name: str) -> pd.Data
 # CLI params
 @click.command()
 @click.option("--db-path", help="Path to input directory with sqlite dbs", required=True)
+@click.option("--description-file", help="Path to JSON file with column descriptions")
 @click.option(
     "--output-file", help="Filepath where output metadata JSON file will be saved", required=True
 )
@@ -296,7 +300,14 @@ def read_table_description(db_path: str, db_id: str, table_name: str) -> pd.Data
     help="Re-generates AI descriptions from a previous metadata file",
 )
 @coro
-async def main(db_path: str, output_file: str, model: str, concurrency: int, ai_only: bool):
+async def main(
+    db_path: str,
+    description_file: str | None,
+    output_file: str,
+    model: str,
+    concurrency: int,
+    ai_only: bool,
+):
     if ai_only:
         try:
             with open(output_file, "r") as f:
@@ -306,21 +317,30 @@ async def main(db_path: str, output_file: str, model: str, concurrency: int, ai_
     else:
         output_databases = get_cleaned_metadata(db_path)
         # Save initial metadata (without AI descriptions)
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        if dirname := os.path.dirname(output_file):
+            os.makedirs(dirname, exist_ok=True)
         with open(output_file, "w") as f:
             f.write(json.dumps(jsonable_encoder(output_databases), indent=2))
 
-    # Generate AI descriptions
-    callables = [
-        partial(generate_table_and_columns_ai_description, table, model)
-        for database in output_databases
-        for table in database.tables
-        if ai_only or not table.ai_description  # --ai-only force-regenerates
-    ]
-    async with aclosing(run_with_concurrency(callables, concurrency)) as results:
-        with tqdm(total=len(callables), desc="Generating AI descriptions") as pbar:
-            async for _ in results:
-                pbar.update(1)
+    if description_file:
+        print(f"Using pre-generated descriptions: {description_file}")
+        with open(description_file, "r") as f:
+            column_descriptions = json.load(f)
+            assert isinstance(column_descriptions, dict)
+        for database in output_databases:
+            use_pregenerated_descriptions(database, column_descriptions)
+    else:
+        # Generate AI descriptions
+        callables = [
+            partial(generate_table_and_columns_ai_description, table, model)
+            for database in output_databases
+            for table in database.tables
+            if ai_only or not table.ai_description  # --ai-only force-regenerates
+        ]
+        async with aclosing(run_with_concurrency(callables, concurrency)) as results:
+            with tqdm(total=len(callables), desc="Generating AI descriptions") as pbar:
+                async for _ in results:
+                    pbar.update(1)
 
     with open(output_file, "w") as f:
         f.write(json.dumps(jsonable_encoder(output_databases), indent=2))

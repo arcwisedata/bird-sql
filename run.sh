@@ -19,7 +19,8 @@ export AZURE_API_BASE="https://arcwise-ai-useast2.openai.azure.com"
 # Input arguments
 DB_PATH="$1"
 QUESTIONS_FILE="$2"
-OUTPUT_FILE="$3"
+DESCRIPTION_FILE="$3"
+OUTPUT_FILE="$4"
 
 # Models
 CUSTOM_MODEL="arcwise/bird-mistral-nemo"
@@ -36,6 +37,7 @@ if [ ! -f "$METADATA_FILE" ] || [ -z "$RESUME_RUN" ]; then
   echo "Generating DB schemas and metadata..."
   python3 -m arcwise.generate_db_metadata \
     --db-path "$DB_PATH" \
+    --description-file "$DESCRIPTION_FILE" \
     --output-file "$METADATA_FILE" \
     --model "$OPENAI_MODEL"
 fi

@@ -5,7 +5,7 @@ import litellm
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
 from .ddl import quote_identifier
-from .typedefs import ColumnInfo, Table
+from .typedefs import ColumnInfo, Database, Table
 from .utils import stringify
 
 
@@ -156,3 +156,23 @@ def _get_column_description(column: ColumnInfo, ai_description: str) -> str:
             ]
         )
     return ai_description
+
+
+def use_pregenerated_descriptions(
+    database: Database,
+    column_descriptions: dict[str, str],
+) -> None:
+    for table in database.tables:
+        # TODO: should we still generate a table description?
+        table.ai_description = _get_table_description(table, "")
+        for column in table.columns:
+            description = column_descriptions.get(f"{database.name}|{table.name}|{column.name}")
+            if description:
+                # Strip all leading '# ' characters
+                description = re.sub(r"^[# ]*", "", description)
+            else:
+                print(
+                    f"Warning: no pre-generated description for {database.name}.{table.name}.{column.name}"
+                )
+                description = ""
+            column.ai_description = _get_column_description(column, description)
