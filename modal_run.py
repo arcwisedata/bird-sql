@@ -19,6 +19,7 @@ app_image = (
     .apt_install("bash", "curl", "make", "git", "gcc", "g++", "sqlite3")
     .poetry_install_from_file("pyproject.toml")
     .workdir("/app")
+    .copy_local_file("sqlite3", "/usr/bin/sqlite3")
     .copy_local_dir("arcwise", "arcwise")
     .copy_local_file("run.sh")
 )
@@ -34,12 +35,13 @@ bird_volume = modal.Volume.from_name("bird-data")
     image=app_image,
     timeout=86400,
     gpu="h100:1",
-    volumes={"/bird": bird_volume},
+    volumes={"/bird": bird_volume, "/runs": modal.Volume.from_name("runs-vol")},
     secrets=[modal.Secret.from_dotenv()],
 )
 def main(
     db_path: str,
     questions_file: str,
+    description_file: str,
     resume_run: str | None = None,
     agent_concurrency: int = 3,
 ):
@@ -54,7 +56,7 @@ def main(
         env["RESUME_RUN"] = "1"
 
     proc = subprocess.Popen(
-        ["/app/run.sh", db_path, questions_file, run_dir + "/predict_dev.json"],
+        ["/app/run.sh", db_path, questions_file, description_file, run_dir + "/predict_dev.json"],
         env=env,
     )
     proc.wait()

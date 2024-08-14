@@ -22,7 +22,7 @@ MIN_VOTES = 1
 @click.option("--output-file", help="Path to output file", required=True)
 @click.option("--metadata-file", help="Path to JSON metadata", required=True)
 @click.option("--model", help="Model identifier", required=True)
-@click.option("--max-model-len", help="Model context length", default=9216)
+@click.option("--max-model-len", help="Model context length", default=20_000)
 @click.option("--embedding-model", help="Model identifier", required=True)
 @coro
 async def main(

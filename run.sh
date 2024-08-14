@@ -2,9 +2,9 @@
 set -e
 
 # Check if all three arguments are provided
-if [ $# -ne 3 ]; then
-    echo "Usage: $0 [path_to_databases] [path_to_questions_json] [predicted_sql_file]"
-    echo "Example: $0 path/to/test_databases path/to/test.json path/to/predicted_sql.json"
+if [ $# -ne 4 ]; then
+    echo "Usage: $0 [path_to_databases] [path_to_questions_json] [path_to_column_meaning_json] [output_predictions_json]"
+    echo "Example: $0 path/to/test_databases path/to/test.json path/to/column_meaning.json path/to/output_sql.json"
     exit 1
 fi
 
@@ -49,6 +49,7 @@ if [ ! -f "$PREDICTIONS_FILE" ] || [ -z "$RESUME_RUN" ]; then
     --metadata-file "$METADATA_FILE" \
     --output-file "$PREDICTIONS_FILE" \
     --model "$CUSTOM_MODEL" \
+    --max-model-len 20000 \
     --embedding-model "$EMBED_MODEL"
 fi
 
