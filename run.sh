@@ -47,7 +47,7 @@ if [ ! -f "$PREDICTIONS_FILE" ] || [ -z "$RESUME_RUN" ]; then
     --metadata-file "$METADATA_FILE" \
     --output-file "$PREDICTIONS_FILE" \
     --model "$CUSTOM_MODEL" \
-    --max-model-len 20000 \
+    --max-model-len 24000 \
     --embedding-model "$EMBED_MODEL"
 fi
 

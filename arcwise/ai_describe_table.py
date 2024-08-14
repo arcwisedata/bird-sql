@@ -46,6 +46,7 @@ async def generate_table_and_columns_ai_description(table: Table, model: str):
     system_prompt = """You are an expert, detail-oriented data analyst.
 Your task is to provide high-quality but concise documentation for each column in a user-provided SQL table.
 Repeat each column on its own line as `# column_name` followed by a short one-line description as a line comment, e.g. `-- Description`.
+Try to keep descriptions to under 100 characters.
 Information such as descriptions, sample values, and ranges will be provided for each column. Only use the information provided by the user.
 Do not respond with any other information.
 
