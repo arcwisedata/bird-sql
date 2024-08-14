@@ -145,7 +145,7 @@ def main(
             eval_strategy="steps",
             bf16_full_eval=True,
             eval_steps=0.2,
-            eval_on_start=False,
+            eval_on_start=True,
             # saving/logging
             logging_steps=1,
             output_dir="/runs/" + run_name,
