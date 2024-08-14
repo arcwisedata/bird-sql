@@ -41,7 +41,6 @@ bird_volume = modal.Volume.from_name("bird-data")
 def main(
     db_path: str,
     questions_file: str,
-    description_file: str,
     resume_run: str | None = None,
     agent_concurrency: int = 3,
 ):
@@ -56,7 +55,7 @@ def main(
         env["RESUME_RUN"] = "1"
 
     proc = subprocess.Popen(
-        ["/app/run.sh", db_path, questions_file, description_file, run_dir + "/predict_dev.json"],
+        ["/app/run.sh", db_path, questions_file, run_dir + "/predict_dev.json"],
         env=env,
     )
     proc.wait()

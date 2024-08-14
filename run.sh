@@ -2,9 +2,9 @@
 set -e
 
 # Check if all three arguments are provided
-if [ $# -ne 4 ]; then
-    echo "Usage: $0 [path_to_databases] [path_to_questions_json] [path_to_column_meaning_json] [output_predictions_json]"
-    echo "Example: $0 path/to/test_databases path/to/test.json path/to/column_meaning.json path/to/output_sql.json"
+if [ $# -ne 3 ]; then
+    echo "Usage: $0 [path_to_databases] [path_to_questions_json] [output_predictions_json]"
+    echo "Example: $0 path/to/test_databases path/to/test.json path/to/output_sql.json"
     exit 1
 fi
 
@@ -19,8 +19,7 @@ export AZURE_API_BASE="https://arcwise-ai-useast2.openai.azure.com"
 # Input arguments
 DB_PATH="$1"
 QUESTIONS_FILE="$2"
-DESCRIPTION_FILE="$3"
-OUTPUT_FILE="$4"
+OUTPUT_FILE="$3"
 
 # Models
 CUSTOM_MODEL="arcwise/bird-mistral-nemo"
@@ -37,7 +36,6 @@ if [ ! -f "$METADATA_FILE" ] || [ -z "$RESUME_RUN" ]; then
   echo "Generating DB schemas and metadata..."
   python3 -m arcwise.generate_db_metadata \
     --db-path "$DB_PATH" \
-    --description-file "$DESCRIPTION_FILE" \
     --output-file "$METADATA_FILE" \
     --model "$OPENAI_MODEL"
 fi

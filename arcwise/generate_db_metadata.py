@@ -279,7 +279,7 @@ def read_table_description(db_path: str, db_id: str, table_name: str) -> pd.Data
     "--output-file", help="Filepath where output metadata JSON file will be saved", required=True
 )
 @click.option("--model", default="gpt-4o", help="LLM to use for AI descriptions")
-@click.option("--concurrency", default=2, help="Number of tables to evaluate concurrently")
+@click.option("--concurrency", default=3, help="Number of tables to evaluate concurrently")
 @click.option(
     "--ai-only",
     is_flag=True,

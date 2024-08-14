@@ -106,7 +106,7 @@ async def main(
         total += 1
         if result.ex_match:
             ex_correct += 1
-        elif isinstance(result.predicted_result, BaseException):
+        elif isinstance(result.predicted_result, str):
             exceptions += 1
         pbar.set_description(f"Accuracy: {ex_correct / total:.2%}")
         results.append(
