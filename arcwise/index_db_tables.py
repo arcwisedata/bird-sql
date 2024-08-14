@@ -10,7 +10,6 @@ from .typedefs import ForeignKey
 class DatabaseColumn:
     name: str
     type: str
-    foreign_keys: list[ForeignKey]
 
 
 @dataclass
@@ -19,6 +18,7 @@ class DatabaseTable:
     name: str
     columns: list[DatabaseColumn]
     primary_key: list[str]
+    foreign_keys: list[ForeignKey]
 
 
 def index_db_tables(db_path: str) -> list[DatabaseTable]:
@@ -44,25 +44,21 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
                 # Get foreign key information
                 cursor.execute(f'PRAGMA foreign_key_list("{escaped_name}")')
                 # id, seq, table, from, to, on_update, on_delete, match
-                fk_info = cursor.fetchall()
-                fk_list = defaultdict(list)
-                seen_fks = set()
-                for _id, _seq, reference_table, from_col, to_col, _, _, _ in fk_info:
-                    reference_table_name: str = next(
-                        (name for row in table_names if (name := row[0]) and name.lower() == reference_table.lower()),
-                        None
+                fk_info = sorted(cursor.fetchall())
+                fk_by_id: dict[int, list[tuple[str, str, str]]] = defaultdict(list)
+                for id, _seq, reference_table, from_col, to_col, _, _, _ in fk_info:
+                    reference_table_name: str | None = next(
+                        (
+                            name
+                            for row in table_names
+                            if (name := row[0]) and name.lower() == reference_table.lower()
+                        ),
+                        None,
                     )
                     if reference_table_name is None:
                         continue
-                    if from_col and to_col and (reference_table_name, from_col, to_col) not in seen_fks:
-                        seen_fks.add((reference_table_name, from_col, to_col))
-                        fk_list[from_col].append(
-                            ForeignKey(
-                                reference_table=reference_table_name,
-                                reference_column=to_col,
-                                relationship="",  # This will be determined later
-                            )
-                        )
+                    if from_col and to_col:
+                        fk_by_id[id].append((reference_table_name, from_col, to_col))
 
                 # Get column info
                 cursor.execute(f'PRAGMA table_info("{escaped_name}")')
@@ -71,19 +67,25 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
                 columns = []
                 primary_key = []
                 for _cid, col_name, col_type, _notnull, _dflt_value, is_pk in columns_info:
-                    columns.append(
-                        DatabaseColumn(
-                            name=col_name,
-                            type=col_type.lower(),
-                            foreign_keys=fk_list[col_name],
-                        )
-                    )
+                    columns.append(DatabaseColumn(name=col_name, type=col_type.lower()))
                     if is_pk:
                         primary_key.append(col_name)
 
                 db_tables.append(
                     DatabaseTable(
-                        db_id=db_name, name=table_name, columns=columns, primary_key=primary_key
+                        db_id=db_name,
+                        name=table_name,
+                        columns=columns,
+                        primary_key=primary_key,
+                        foreign_keys=[
+                            ForeignKey(
+                                columns=[from_col for _, from_col, _ in fks],
+                                reference_table=fks[0][0],
+                                reference_columns=[to_col for _, _, to_col in fks],
+                                relationship=None,
+                            )
+                            for fks in fk_by_id.values()
+                        ],
                     )
                 )
 

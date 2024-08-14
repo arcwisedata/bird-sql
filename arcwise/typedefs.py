@@ -5,9 +5,10 @@ from pydantic import BaseModel
 
 
 class ForeignKey(BaseModel):
+    columns: list[str]
     reference_table: str
-    reference_column: str
-    relationship: str
+    reference_columns: list[str]
+    relationship: str | None
 
 
 class ColumnInfo(BaseModel):
@@ -17,7 +18,6 @@ class ColumnInfo(BaseModel):
     ai_description: str | None = None
     description: str | None = None
     value_description: str | None = None
-    foreign_keys: list[ForeignKey]
     null_fraction: float
     unique_count: int
     unique_fraction: float
@@ -31,7 +31,38 @@ class Table(BaseModel):
     ai_description: str | None = None
     row_count: int
     primary_key: list[str]
+    foreign_keys: list[ForeignKey] = []
     columns: list[ColumnInfo]
+
+    def format_for_column_prediction(self) -> str:
+        lines = [
+            f"# Table: {self.name}",
+            *([f"Description: {self.ai_description}"] if self.ai_description else []),
+            f"Rows: {self.row_count}",
+        ]
+
+        if self.primary_key:
+            lines.append(f"Primary key: ({', '.join(self.primary_key)})")
+
+        for fkey in self.foreign_keys:
+            line = (
+                f"Foreign key: ({', '.join(fkey.columns)})"
+                f" references {fkey.reference_table} "
+                f"({', '.join(fkey.reference_columns)})"
+            )
+            if fkey.relationship:
+                line += f" {fkey.relationship}"
+            lines.append(line)
+
+        lines.append("Columns:")
+        for col in self.columns:
+            line = f"{self.name}.{col.name}\t{col.type.upper()}"
+            if col.ai_description:
+                description_clean = col.ai_description.replace("\n", " ")[:512]
+                line += f"\t{description_clean}"
+            lines.append(line)
+
+        return "\n".join(lines)
 
 
 class Database(BaseModel):

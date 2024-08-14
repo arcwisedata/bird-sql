@@ -20,7 +20,7 @@ from .ai_describe_table import (
     use_pregenerated_descriptions,
 )
 from .index_db_tables import index_db_tables, DatabaseTable
-from .typedefs import ColumnInfo, Database, ForeignKey, Table
+from .typedefs import ColumnInfo, Database, Table
 from .utils import coro, run_with_concurrency
 
 RELATIONSHIPS = {
@@ -179,7 +179,6 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                 type=column.type,
                 description=description.strip() if description else None,
                 value_description=value_description.strip() if value_description else None,
-                foreign_keys=column.foreign_keys,
                 null_fraction=stats.null_fraction,
                 unique_count=int(stats.distinct_count),
                 unique_fraction=stats.distinct_percent,
@@ -199,6 +198,7 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                 name=table.name,
                 row_count=column_stats[0].row_count,
                 primary_key=table.primary_key,
+                foreign_keys=table.foreign_keys,
                 columns=output_columns,
             )
         )
@@ -208,37 +208,24 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
     for db_id, tables in tables_by_db_id.items():
         databases_list.append(Database(name=db_id, tables=tables))
         for table in tables:
-            for column in table.columns:
-                for fkey in column.foreign_keys:
-                    if fkey.relationship:
-                        # This was inserted from the other direction!
-                        continue
+            for fkey in table.foreign_keys:
+                if len(fkey.columns) > 1 or fkey.relationship:
+                    continue
 
-                    _, from_col_stats, _ = all_columns[
-                        (db_id, table.name.lower(), column.name.lower())
-                    ]
-                    to_col, to_col_stats, to_col_table = all_columns[
-                        (db_id, fkey.reference_table.lower(), fkey.reference_column.lower())
-                    ]
-                    from_unique = approx_eq(
-                        from_col_stats.distinct_percent + from_col_stats.null_fraction, 1
-                    )
-                    to_unique = approx_eq(
-                        to_col_stats.distinct_percent + to_col_stats.null_fraction, 1
-                    )
-                    # names may have been lowercased
-                    fkey.reference_table = to_col_table
-                    fkey.reference_column = to_col.name
-                    fkey.relationship = RELATIONSHIPS[(from_unique, to_unique)]
-
-                    # SQLite only lists foreign keys in one direction, so add the reverse
-                    to_col.foreign_keys.append(
-                        ForeignKey(
-                            reference_table=table.name,
-                            reference_column=column.name,
-                            relationship=RELATIONSHIPS[(to_unique, from_unique)],
-                        )
-                    )
+                column = fkey.columns[0]
+                ref_column = fkey.reference_columns[0]
+                _, from_col_stats, _ = all_columns[(db_id, table.name.lower(), column.lower())]
+                to_col, to_col_stats, to_col_table = all_columns[
+                    (db_id, fkey.reference_table.lower(), ref_column.lower())
+                ]
+                from_unique = approx_eq(
+                    from_col_stats.distinct_percent + from_col_stats.null_fraction, 1
+                )
+                to_unique = approx_eq(to_col_stats.distinct_percent + to_col_stats.null_fraction, 1)
+                # names may have been lowercased
+                fkey.reference_table = to_col_table
+                fkey.reference_columns[0] = to_col.name
+                fkey.relationship = RELATIONSHIPS[(from_unique, to_unique)]
 
     return databases_list
 

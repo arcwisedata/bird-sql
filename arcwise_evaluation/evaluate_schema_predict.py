@@ -46,21 +46,16 @@ async def main(
         predicted_table = set(
             c.column.split(".")[0] for c in question.schema_predictions.input_columns
         )
-        for table in metadata[db_id].tables:
-            ref_tables = set()
-            if table.name in predicted_table:
-                for column in table.primary_key:
-                    predicted_column.add(f"{table.name}.{column}")
-                for column in table.columns:
-                    for fk in column.foreign_keys:
-                        predicted_column.add(f"{table.name}.{column.name}")
-                        predicted_column.add(f"{fk.reference_table}.{fk.reference_column}")
-                        ref_tables.add(fk.reference_table)
-        for table in metadata[db_id].tables:
-            if table.name in ref_tables:
-                for column in table.primary_key:
-                    predicted_column.add(f"{table.name}.{column}")
-        predicted_table.update(ref_tables)
+        # for table in metadata[db_id].tables:
+        #     ref_tables = set()
+        #     if table.name in predicted_table:
+        #         for column in table.primary_key:
+        #             predicted_column.add(f"{table.name}.{column}")
+        # for table in metadata[db_id].tables:
+        #     if table.name in ref_tables:
+        #         for column in table.primary_key:
+        #             predicted_column.add(f"{table.name}.{column}")
+        # predicted_table.update(ref_tables)
         output_match = sql_refs.output_schema == predicted_output_schema
         table_intersection = len(predicted_table & golden_table)
         column_intersection = len(predicted_column & golden_column)

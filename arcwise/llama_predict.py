@@ -7,8 +7,9 @@ import numpy as np
 from openai.types.chat import ChatCompletionMessageParam
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 
-from .ddl import Table, get_table_ddl
+from .ddl import get_table_ddl
 from .embedding import batch_embed
+from .prompts import COLUMN_PREDICTION_TYPES, COLUMN_PREDICTION_PROMPT
 from .typedefs import BIRDQuestion, Database, SchemaPredictions
 from .utils import coro, load_database_metadata, load_questions
 from vllm import LLM, RequestOutput, SamplingParams
@@ -51,7 +52,7 @@ async def main(
             continue
         print(f"Processing database {db_name} ({len(db_questions)} questions)")
 
-        table_schemas = [_format_table(table) for table in db.tables]
+        table_schemas = [table.format_for_column_prediction() for table in db.tables]
         table_tokens: list[list[int]] = tokenizer(table_schemas, add_special_tokens=False)[
             "input_ids"
         ]  # type: ignore
@@ -95,18 +96,6 @@ async def main(
             json.dump([q.model_dump() for q in questions], f, indent=2)
 
 
-def _format_table(table: Table) -> str:
-    assert table.ai_description, "AI descriptions are required"
-    schema = "-- " + table.ai_description.replace("\n", "\n-- ") + "\n# Table: {table.name}"
-
-    for col in table.columns:
-        if col.ai_description:
-            schema += "\n-- " + col.ai_description.replace("\n", "\n-- ")
-        schema += f"\n{table.name}.{col.name}\t{col.type.upper()}"
-
-    return schema
-
-
 def _create_prompt(
     question: BIRDQuestion,
     question_embedding: np.ndarray | None,
@@ -137,7 +126,7 @@ def _create_prompt(
 
     question.filtered_schema = "\n".join(get_table_ddl(table) for table in selected_tables)
 
-    return SCHEMA_PREDICTION_PROMPT + [
+    return COLUMN_PREDICTION_PROMPT + [
         {
             "role": "user",
             "content": f"""Given a database named {db.name}:
@@ -197,9 +186,6 @@ def _process_prediction(
     )
 
 
-COLUMN_TYPES = ["real", "integer", "text", "date", "datetime"]
-
-
 # (This turned out to be slow and not that helpful.)
 # def _guided_output_regex(db: Database) -> str:
 #     # Create a union of all table/column combinations
@@ -224,64 +210,10 @@ def _parse_output_types(lines: list[str]) -> list[SchemaPredictions.OutputType]:
         if line.startswith("--"):
             last_desc = line[2:].strip()
         elif type_ := line.strip():
-            if not last_desc or type_ not in COLUMN_TYPES:
+            if not last_desc or type_ not in COLUMN_PREDICTION_TYPES:
                 return []  # Void out bad guesses
             output_types.append(SchemaPredictions.OutputType(type=type_, description=last_desc))
     return output_types
-
-
-SCHEMA_PREDICTION_PROMPT: list[ChatCompletionMessageParam] = [
-    {
-        "role": "system",
-        "content": f"""Given a SQL database and question, please determine a list of "Output Types" and "Input Columns" required to answer the question.
-Before each list item, write a `--` line comment explaining why it is needed, citing the user's question when possible.
-Output types should be one of: {", ".join(COLUMN_TYPES)}
-Input columns should be formatted without quotes as: table_name.column_name
-Ensure that the output types provide exactly the information needed to answer the question and nothing more or less.""",
-    },
-    {
-        "role": "user",
-        "content": """Given the database:
-<schema>
--- Table containing sales info
-# Table: sales
--- Date of sale
-sales.sale_date\tDATE
-sales.product_id\tINTEGER
-sales.quantity\tREAL
--- Daily prices for each product
-# Table: prices
--- Date of recorded price
-prices.price_date\tDATE
-prices.product_id\tINTEGER
-prices.price\tREAL
--- Product-level information
-# Table: products
-products.product_id\tINTEGER
-products.product_name\tTEXT
-</schema>
-What was the average price by product name in January 2024?""",
-    },
-    {
-        "role": "assistant",
-        "content": """Output Types
--- The 'product name' requested by the question
-text
--- The average price 'in January 2024' for each product name
-real
-Input Columns
--- The question asks for the 'average price'. We should aggregate the price column in prices
-prices.price
--- To filter for prices 'in January 2024', we should use the price_date column in prices
-prices.price_date
--- We need to join prices with products by product_id to obtain the product name
-prices.product_id
--- Join key for product_id in prices
-products.product_id
--- Finally, we can group by the product_name column in products
-products.product_name""",
-    },
-]
 
 
 if __name__ == "__main__":

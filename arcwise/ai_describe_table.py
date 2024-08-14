@@ -4,7 +4,6 @@ import re
 import litellm
 from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential
 
-from .ddl import quote_identifier
 from .typedefs import ColumnInfo, Database, Table
 from .utils import stringify
 
@@ -113,7 +112,6 @@ At the end, provide a table_description (but do not mention the exact row count.
                 )
         descriptions = json.loads(result.choices[0].message.tool_calls[0].function.arguments)  # type: ignore
     except Exception:
-        table.ai_description = _get_table_description(table, "")
         for column in table.columns:
             description = ""
             if column.description:
@@ -122,40 +120,14 @@ At the end, provide a table_description (but do not mention the exact row count.
                 description += f"\nValue description: {column.value_description[:200]}"
             else:
                 description += "\n" + _format_sample_values(column)
-            column.ai_description = _get_column_description(column, description.strip())
+            column.ai_description = description.strip()
         return
 
-    table_description: str = descriptions.get("table_description", "")
-    table.ai_description = _get_table_description(table, table_description)
-
+    table.ai_description = descriptions.get("table_description", "")
     for column in table.columns:
-        ai_description = descriptions.get(_normalize_for_json(column.name) + "-description") or ""
-        column.ai_description = _get_column_description(column, ai_description)
-
-
-def _get_table_description(table: Table, table_description: str) -> str:
-    if table_description:
-        table_description += "\n"
-    table_description += f"{table.row_count} rows"
-    if table.primary_key:
-        table_description += f", primary key: ({', '.join(table.primary_key)})"
-    return table_description
-
-
-def _get_column_description(column: ColumnInfo, ai_description: str) -> str:
-    if ai_description:
-        ai_description += "\n"
-    ai_description += (
-        f"Stats: {column.null_fraction*100:.3g}% null {column.unique_fraction*100:.3g}% unique"
-    )
-    if column.foreign_keys:
-        ai_description += "\nForeign keys: " + ", ".join(
-            [
-                f"{quote_identifier(fk.reference_table)}.{quote_identifier(fk.reference_column)} ({fk.relationship})"
-                for fk in column.foreign_keys
-            ]
+        column.ai_description = (
+            descriptions.get(_normalize_for_json(column.name) + "-description") or ""
         )
-    return ai_description
 
 
 def use_pregenerated_descriptions(
@@ -164,7 +136,6 @@ def use_pregenerated_descriptions(
 ) -> None:
     for table in database.tables:
         # TODO: should we still generate a table description?
-        table.ai_description = _get_table_description(table, "")
         for column in table.columns:
             description = column_descriptions.get(f"{database.name}|{table.name}|{column.name}")
             if description:
@@ -174,5 +145,4 @@ def use_pregenerated_descriptions(
                 print(
                     f"Warning: no pre-generated description for {database.name}.{table.name}.{column.name}"
                 )
-                description = ""
-            column.ai_description = _get_column_description(column, description)
+            column.ai_description = description
