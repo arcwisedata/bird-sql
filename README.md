@@ -4,7 +4,7 @@ Arcwise team submission for https://bird-bench.github.io
 
 ## Instructions
 
-Requires Docker with CUDA and an Nvidia GPU with >=40GB VRAM.
+Requires Docker with CUDA and an Nvidia GPU with 80GB VRAM.
 
 For example, to run on the included `mock_dataset`:
 

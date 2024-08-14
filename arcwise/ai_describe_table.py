@@ -50,7 +50,6 @@ Try to keep descriptions to under 100 characters.
 Information such as descriptions, sample values, and ranges will be provided for each column. Only use the information provided by the user.
 Do not respond with any other information.
 
-- If a column is the same as a previous column (and its sample values are of the same format), its description should be 'See [previous column]'.
 - IMPORTANT: if "Value description" explains the meanings of certain values, or mentions that the values are not useful, this information MUST be preserved in the final description.
     - If "Value description" is inconsistent with the sample values, the sample values take priority and must be used instead.
 - If the values appear to follow a consistent format or pattern, describe the format or pattern. e.g. if the values are '<html>...</html>', describe them simply as HTML values without providing sample values.

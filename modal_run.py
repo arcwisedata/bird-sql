@@ -51,6 +51,7 @@ def main(
 
     env = os.environ.copy()
     env["AGENT_CONCURRENCY"] = str(agent_concurrency)
+    env["OUTPUT_DIR"] = run_dir
     if resume_run:
         env["RESUME_RUN"] = "1"
 
