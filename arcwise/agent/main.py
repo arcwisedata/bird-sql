@@ -130,7 +130,9 @@ async def main(
         }
         with open(output_file, "w") as f:
             json.dump(predicted_sql, f, indent=2)
-        print(f"Successfully saved predictions to {output_file}")
+        print(
+            f"Successfully saved {total} predictions to {output_file}! Please evaluate the results."
+        )
 
 
 def _write_report(results: list[dict[str, Any]], report_file: str) -> None:

@@ -1,6 +1,8 @@
+from openai.types.chat import ChatCompletionMessageParam
+
 COLUMN_PREDICTION_TYPES = ["real", "integer", "text", "date", "datetime"]
 
-COLUMN_PREDICTION_PROMPT = [
+COLUMN_PREDICTION_PROMPT: list[ChatCompletionMessageParam] = [
     {
         "role": "system",
         "content": f"""Given a SQL database and question, please determine a list of "Output Types" and "Input Columns" required to answer the question.
