@@ -21,6 +21,34 @@ class DatabaseTable:
     foreign_keys: list[ForeignKey]
 
 
+COLUMN_TYPE_MAP = {
+    "char": "text",
+    "character": "text",
+    "varchar": "text",
+    "nchar": "text",
+    "nvarchar": "text",
+    "decimal": "real",
+    "double precision": "real",
+    "double": "real",
+    "float": "real",
+    "number": "real",
+    "numeric": "real",
+    "int": "integer",
+    "bigint": "integer",
+    "smallint": "integer",
+    "mediumint": "integer",
+    "tinyint": "integer",
+}
+
+
+def _map_column_type(col_type: str) -> str:
+    col_type = col_type.lower()
+    # Strip parens
+    if "(" in col_type:
+        col_type = col_type[: col_type.index("(")]
+    return COLUMN_TYPE_MAP.get(col_type, col_type)
+
+
 def index_db_tables(db_path: str) -> list[DatabaseTable]:
     db_tables = []
     for db_name in os.listdir(db_path):
@@ -67,7 +95,7 @@ def index_db_tables(db_path: str) -> list[DatabaseTable]:
                 columns = []
                 primary_key = []
                 for _cid, col_name, col_type, _notnull, _dflt_value, is_pk in columns_info:
-                    columns.append(DatabaseColumn(name=col_name, type=col_type.lower()))
+                    columns.append(DatabaseColumn(name=col_name, type=_map_column_type(col_type)))
                     if is_pk:
                         primary_key.append(col_name)
 

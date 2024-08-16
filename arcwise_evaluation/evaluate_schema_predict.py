@@ -78,9 +78,13 @@ async def main(
                 "column_precision": (
                     column_intersection / len(predicted_column) if predicted_column else 0.0
                 ),
-                "column_recall": column_intersection / len(golden_column),
+                "column_recall": column_intersection / len(golden_column)
+                if len(golden_column)
+                else 1.0,
                 "column_correct": int(golden_column <= predicted_column),
-                "column_ratio": len(predicted_column) / len(golden_column),
+                "column_ratio": len(predicted_column) / len(golden_column)
+                if len(golden_column)
+                else 1.0,
                 "table_ratio": len(predicted_table) / len(golden_table),
             }
         )
