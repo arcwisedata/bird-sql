@@ -135,6 +135,7 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
         output_columns = []
         for column, stats in zip(table.columns, column_stats):
             col_description = description_by_name.get(column.name.lower())
+            orig_col_name = None
             description = None
             value_description = None
             if col_description is None:
@@ -145,8 +146,17 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
                         f"Warning: malformed column description for {db_id}.{table.name}.{column.name}"
                     )
                 else:
-                    expected_cols, additional_cols = col_description[:5], col_description[5:]
-                    _, orig_col_name, description, _type, value_description = expected_cols
+                    expected_cols, additional_cols = (
+                        col_description[:5],
+                        col_description[5:],
+                    )
+                    (
+                        _,
+                        orig_col_name,
+                        description,
+                        _type,
+                        value_description,
+                    ) = expected_cols
                     additional_info = [
                         str_i
                         for i in additional_cols
@@ -214,10 +224,15 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
 
                 column = fkey.columns[0]
                 ref_column = fkey.reference_columns[0]
-                _, from_col_stats, _ = all_columns[(db_id, table.name.lower(), column.lower())]
-                to_col, to_col_stats, to_col_table = all_columns[
-                    (db_id, fkey.reference_table.lower(), ref_column.lower())
-                ]
+                try:
+                    _, from_col_stats, _ = all_columns[(db_id, table.name.lower(), column.lower())]
+                    to_col, to_col_stats, to_col_table = all_columns[
+                        (db_id, fkey.reference_table.lower(), ref_column.lower())
+                    ]
+                except Exception:
+                    print(f"Warning: invalid foreign key {fkey}")
+                    continue
+
                 from_unique = approx_eq(
                     from_col_stats.distinct_percent + from_col_stats.null_fraction, 1
                 )
@@ -276,7 +291,9 @@ def read_table_description(db_path: str, db_id: str, table_name: str) -> pd.Data
 @click.option("--db-path", help="Path to input directory with sqlite dbs", required=True)
 @click.option("--description-file", help="Path to JSON file with column descriptions")
 @click.option(
-    "--output-file", help="Filepath where output metadata JSON file will be saved", required=True
+    "--output-file",
+    help="Filepath where output metadata JSON file will be saved",
+    required=True,
 )
 @click.option("--model", default="gpt-4o", help="LLM to use for AI descriptions")
 @click.option("--concurrency", default=3, help="Number of tables to evaluate concurrently")
