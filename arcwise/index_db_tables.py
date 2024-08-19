@@ -22,30 +22,45 @@ class DatabaseTable:
 
 
 COLUMN_TYPE_MAP = {
+    "text": "text",
+    "real": "real",
+    "integer": "integer",
+    "date": "date",
+    "datetime": "datetime",
+    "timestamp": "datetime",  # SQLite doesn't have a separate timestamp type
+    # Text alternatives
     "char": "text",
     "character": "text",
     "varchar": "text",
+    "varchar2": "text",
     "nchar": "text",
     "nvarchar": "text",
     "decimal": "real",
-    "double precision": "real",
+    # Numeric types
     "double": "real",
     "float": "real",
     "number": "real",
     "numeric": "real",
+    # Integer types
     "int": "integer",
     "bigint": "integer",
     "smallint": "integer",
     "mediumint": "integer",
     "tinyint": "integer",
+    "bit": "integer",
+    "bool": "integer",  # SQLite booleans are 0/1
+    "boolean": "integer",
 }
 
 
 def _map_column_type(col_type: str) -> str:
     col_type = col_type.lower()
-    # Strip parens
     if "(" in col_type:
+        # simplify e.g. varchar(255)
         col_type = col_type[: col_type.index("(")]
+    if " " in col_type:
+        # simplify 'double precision' or 'integer unsigned'
+        col_type = col_type[: col_type.index(" ")]
     return COLUMN_TYPE_MAP.get(col_type, col_type)
 
 

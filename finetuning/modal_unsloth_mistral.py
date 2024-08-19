@@ -132,9 +132,10 @@ def main(
             num_train_epochs=1.0,
             learning_rate=1e-4,
             lr_scheduler_type="cosine",
+            max_grad_norm=0.3,
             group_by_length=True,
-            per_device_train_batch_size=2,
-            gradient_accumulation_steps=8,
+            per_device_train_batch_size=3,
+            gradient_accumulation_steps=6,
             warmup_steps=10,
             optim="adamw_8bit",
             seed=42,
@@ -145,18 +146,20 @@ def main(
             eval_strategy="steps",
             bf16_full_eval=True,
             eval_steps=0.2,
-            eval_on_start=True,
+            eval_on_start=False,
             # saving/logging
             logging_steps=1,
             output_dir="/runs/" + run_name,
             save_strategy="steps",
-            save_steps=0.25,
+            save_steps=0.5,
         ),
     )
 
     trainer.train(resume_from_checkpoint=False)
 
-    model.save_pretrained("/runs/" + run_name + "/final")
+    model.save_pretrained_merged(
+        "/runs/" + run_name + "/merged", tokenizer, save_method="merged_16bit"
+    )
     runs_volume.commit()
 
     trainer.evaluate()

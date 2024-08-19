@@ -162,6 +162,8 @@ def _get_user_prompt(question: BIRDQuestion, db_metadata: Database) -> str:
                 and (col_metadata := all_column_metadata.get(col.column))
                 and col_metadata.sample_values
             ):
+                if col.description:
+                    predicted_columns += ": " + col.description
                 sample_values = ""
                 num_sample_values = 0
                 for sv in col_metadata.sample_values:

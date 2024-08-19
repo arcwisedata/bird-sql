@@ -1,4 +1,5 @@
 import click
+from tqdm import tqdm
 
 from arcwise.utils import coro, load_database_metadata, load_questions
 from arcwise.sql_references import extract_sql_references
@@ -18,7 +19,7 @@ async def main(
     metadata = load_database_metadata(metadata_file)
 
     stats = []
-    for question in questions:
+    for question in tqdm(questions):
         if (
             not question.SQL
             or not question.schema_predictions
@@ -34,14 +35,23 @@ async def main(
                 question.SQL,
             )
         except Exception:
-            print(f"Failed to extract schema for {question.question_id}")
-            continue
+            try:
+                # Spider dataset queries have double-quoted strings
+                sql_refs = extract_sql_references(
+                    f"{database_path}/{db_id}/{db_id}.sqlite",
+                    metadata[db_id].tables,
+                    question.SQL.replace('"', "'"),
+                )
+            except Exception:
+                print(f"Failed to extract schema for {question.db_id}: {question.SQL}")
+                continue
 
         golden_column = set(sql_refs.columns)
         golden_table = set(sql_refs.tables)
         predicted_output_schema = [c.type for c in question.schema_predictions.output_types]
         if not predicted_output_schema:
             print(f"Warning: no output schema for {question.question}")
+
         predicted_column = set(c.column for c in question.schema_predictions.input_columns)
         predicted_table = set(
             c.column.split(".")[0] for c in question.schema_predictions.input_columns
@@ -57,6 +67,13 @@ async def main(
         #             predicted_column.add(f"{table.name}.{column}")
         # predicted_table.update(ref_tables)
         output_match = sql_refs.output_schema == predicted_output_schema
+        # if not output_match:
+        #     print(question.question)
+        #     print("```")
+        #     print(question.SQL)
+        #     print("```")
+        #     print(question.schema_predictions.raw_prediction)
+        #     print("-----------")
         table_intersection = len(predicted_table & golden_table)
         column_intersection = len(predicted_column & golden_column)
 

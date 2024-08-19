@@ -25,30 +25,41 @@ def token_count(text: str) -> int:
 random.shuffle(annotated)
 
 for x in annotated:
-    if not x.get("sql_refs") or not x.get("sql_refs_annotated_v2"):
+    if not (sql_refs := x.get("sql_refs")) or not (
+        sql_refs_annotated_v2 := x.get("sql_refs_annotated_v2")
+    ):
         continue
 
     schema_tables = databases[x["db_id"]].tables
 
-    tokens = 0
+    if len(sql_refs["output_schema"]) != len(sql_refs_annotated_v2["output_columns"]):
+        print("Output schema mismatch:", x["question"], file=sys.stderr)
+        continue
+
     output = "Output Types\n"
-    for col, desc in zip(
-        x["sql_refs"]["output_schema"], x["sql_refs_annotated_v2"]["output_columns"]
-    ):
+    for col, desc in zip(sql_refs["output_schema"], sql_refs_annotated_v2["output_columns"]):
         output += f"-- {desc}\n{col}\n"
 
+    input_cols = {}
+    for col, desc in sql_refs_annotated_v2["input_columns"].items():
+        input_cols[col.replace("'", "").replace('"', "").replace("`", "")] = desc
+
     output += "Input Columns\n"
-    for col in x["sql_refs"]["columns"]:
-        desc = x["sql_refs_annotated_v2"]["input_columns"][col]
+    for col in sql_refs["columns"]:
+        if not (desc := input_cols.get(col)):
+            raise Exception("Missing input column annotation " + col)
         output += f"-- {desc}\n{col}\n"
     output = output.strip()
 
-    tokens += token_count(output)
+    if "ERROR" in output:
+        continue
+
+    tokens = token_count(output)
     tokens += token_count(f"{x['question']} {x.get('evidence', '')}".strip())
 
     schema = ""
     if not os.environ.get("EVAL"):
-        tables = set(x["sql_refs"]["tables"])
+        tables = set(sql_refs["tables"])
         chosen, others = [], []
         for table in schema_tables:
             random.shuffle(table.columns)
