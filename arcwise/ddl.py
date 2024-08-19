@@ -37,6 +37,8 @@ def get_table_ddl(table: Table) -> str:
             f" REFERENCES {quote_identifier(fkey.reference_table)}"
             f" ({', '.join(quote_identifier(col) for col in fkey.reference_columns)})"
         )
+        if fkey.relationship:
+            schema += " -- " + fkey.relationship
 
     return schema + "\n);"
 

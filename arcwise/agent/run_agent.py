@@ -174,14 +174,14 @@ def _get_user_prompt(question: BIRDQuestion, db_metadata: Database) -> str:
                     if len(sample_values) > SAMPLE_VALUE_BUDGET:
                         break
                 if num_sample_values == col_metadata.unique_count:
-                    stats = [f"all unique values: {sample_values}"]
+                    stats = [f"all unique values: [{sample_values}]"]
                 else:
                     stats = [
                         f"min: {stringify(col_metadata.min_value)}",
                         f"max: {stringify(col_metadata.max_value)}",
                     ]
                     if col_metadata.type.lower() == "text":
-                        stats.insert(0, f"sample values: {sample_values}")
+                        stats.insert(0, f"sample values: [{sample_values}]")
                     if col_metadata.unique_fraction >= 0.9 or col_metadata.unique_count >= 100:
                         stats.append(f"{col_metadata.unique_fraction*100:.4g}% unique")
                     else:
