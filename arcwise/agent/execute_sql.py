@@ -57,7 +57,9 @@ async def execute_sql_tool(
 ) -> tuple[str, ExecuteSQLToolResult]:
     exec_result_id = _get_unique_str(
         re.sub("[^A-Za-z0-9_]", "_", arguments.query_identifier).lower(),
-        list(previous_sql_queries.keys()),
+        list(previous_sql_queries.keys())
+        # Do not shadow table names in the DB
+        + [t.name for t in sql_context.db_metadata[question.db_id].tables],
     )
     sql = arguments.sql.strip().rstrip(";")
     sg_query = sqlglot.parse_one(sql, dialect=sql_context.dialect).transform(_lint_sql)
