@@ -15,6 +15,7 @@ from .execute_sql import (
     ExecuteSQLToolArguments,
     ExecuteSQLToolResult,
     NoDataException,
+    SQLScalar,
     execute_sql,
     execute_sql_tool,
 )
@@ -157,11 +158,7 @@ def _get_user_prompt(question: BIRDQuestion, db_metadata: Database) -> str:
         predicted_columns = ""
         for col in predictions.input_columns:
             predicted_columns += f"- {col.column}"
-            if (
-                (col.votes is None or col.votes >= 2)
-                and (col_metadata := all_column_metadata.get(col.column))
-                and col_metadata.sample_values
-            ):
+            if (col_metadata := all_column_metadata.get(col.column)) and col_metadata.sample_values:
                 if col.description:
                     predicted_columns += ": " + col.description
                 sample_values = ""
@@ -240,7 +237,7 @@ async def evaluate_question(
             final_sql = ""
         else:
             predicted_result = final_sql_result.rows
-            ex_match = set(map(tuple, predicted_result)) == set(map(tuple, golden_result))
+            ex_match = set(map(_match_row, predicted_result)) == set(map(_match_row, golden_result))
             final_sql = final_sql_result.sql
 
         return (
@@ -266,6 +263,11 @@ async def evaluate_question(
             or "Could not generate SQL",
         ),
     )
+
+
+def _match_row(row: list[SQLScalar]) -> tuple[SQLScalar, ...]:
+    # Avoid errors due to floating point imprecision
+    return tuple(round(x, 7) if isinstance(x, float) else x for x in row)
 
 
 @cache

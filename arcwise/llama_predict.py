@@ -16,6 +16,7 @@ from vllm import LLM, RequestOutput, SamplingParams
 
 NUM_VOTES = 7
 MIN_VOTES = 1
+OUTPUT_TOKENS = 1500
 
 
 @click.command()
@@ -45,7 +46,7 @@ async def main(
         trust_remote_code=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
-    context_token_limit = max_model_len - 1000  # buffer for prompt + output
+    context_token_limit = max_model_len - OUTPUT_TOKENS
     for db_name, db in metadata.items():
         db_questions = [q for q in questions if q.db_id == db_name]
         if not db_questions:
@@ -87,7 +88,12 @@ async def main(
 
         outputs = llm.generate(
             prompt_token_ids=prompt_token_ids,
-            sampling_params=SamplingParams(temperature=0.3, max_tokens=1000, n=NUM_VOTES),
+            sampling_params=SamplingParams(
+                temperature=0.7,
+                top_p=0.9,
+                max_tokens=OUTPUT_TOKENS,
+                n=NUM_VOTES,
+            ),
         )
         for question, output in zip(db_questions, outputs):
             question.schema_predictions = _process_prediction(question, db, output)
