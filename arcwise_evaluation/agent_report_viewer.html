@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL Benchmark Results Visualizer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+
+    #dropZone {
+      border: 2px dashed #ccc;
+      border-radius: 20px;
+      width: 480px;
+      padding: 20px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    #dropZone.highlight {
+      border-color: #000;
+    }
+
+    #search {
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    #result {
+      display: none;
+    }
+
+    .column {
+      float: left;
+      width: 50%;
+    }
+
+    .row:after {
+      content: "";
+      display: table;
+      clear: both;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+
+    #messageLog {
+      max-height: 50vh;
+      overflow-y: auto;
+      background-color: #f4f4f4;
+      padding: 10px;
+      border: 1px solid #ddd;
+    }
+
+    #trueResult,
+    #predictedResult {
+      max-height: 50vh;
+      overflow-y: auto;
+    }
+
+    pre {
+      text-wrap: wrap;
+    }
+  </style>
+
+  <script src="https://unpkg.com/sql-formatter@15.3.2/dist/sql-formatter.min.js"></script>
+</head>
+
+<body>
+  <div id="dropZone">
+    <p>Drag and drop agent_report.json here</p>
+  </div>
+  <div id="search">
+    <label for="questionId">Question ID:</label>
+    <input type="number" id="questionId" name="questionId" onkeyup="if(event.key === 'Enter') searchResult()">
+    <button onclick="searchResult()">Search</button>
+    <button onclick="next()">Next</button>
+    <button onclick="prev()">Prev</button>
+    <button onclick="nextMismatch()">Next error</button>
+    <button onclick="prevMismatch()">Prev error</button>
+  </div>
+  <div id="result">
+    <h2>Database: <span id="dbId"></span></h2>
+    <h3>Question: <span id="question"></span></h3>
+    <p><strong>Evidence:</strong> <span id="evidence"></span></p>
+    <h3>Match: <span id="isMatch"></span></h3>
+    <div class="row">
+      <div class="column">
+        <h4>True SQL</h4>
+        <textarea id="trueSQL" rows="20" style="width: 100%;"></textarea>
+      </div>
+      <div class="column">
+        <h4>Predicted SQL</h4>
+        <textarea id="predictedSQL" rows="20" style="width: 100%;"></textarea>
+      </div>
+    </div>
+    <div class="row">
+      <div class="column">
+        <h4>True Result</h4>
+        <div id="trueResult"></div>
+      </div>
+      <div class="column">
+        <h4>Predicted Result</h4>
+        <div id="predictedResult"></div>
+      </div>
+    </div>
+    <h4>Message Log:</h4>
+    <pre id="messageLog"></pre>
+  </div>
+
+  <script>
+    let benchmarkResults = [];
+    const dropZone = document.getElementById('dropZone');
+    const searchDiv = document.getElementById('search');
+
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, preventDefaults, false);
+      document.body.addEventListener(eventName, preventDefaults, false);
+    });
+
+    // Highlight drop zone when item is dragged over it
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, highlight, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, unhighlight, false);
+    });
+
+    // Handle dropped files
+    dropZone.addEventListener('drop', handleDrop, false);
+
+    function preventDefaults(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    function highlight() {
+      dropZone.classList.add('highlight');
+    }
+
+    function unhighlight() {
+      dropZone.classList.remove('highlight');
+    }
+
+    function handleDrop(e) {
+      const dt = e.dataTransfer;
+      const files = dt.files;
+      handleFiles(files);
+    }
+
+    function handleFiles(files) {
+      const file = files[0];
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          benchmarkResults = JSON.parse(e.target.result);
+          benchmarkResults = benchmarkResults.filter(x => x.ex_match != null);
+          benchmarkResults.forEach((x, index) => {
+            if (!x.question_id) {
+              x.question_id = index + 1;
+            }
+          });
+          benchmarkResults.sort((a, b) => a.question_id - b.question_id);
+          dropZone.style.display = 'none';
+          searchDiv.style.display = 'block';
+        } catch (error) {
+          alert('Error parsing JSON file. Please make sure it\'s a valid JSON file.');
+          console.error('Error:', error);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function searchResult() {
+      const questionId = document.getElementById('questionId').value;
+      const result = benchmarkResults.find(r => r.question_id == questionId);
+
+      if (result) {
+        displayResult(result);
+      } else {
+        alert('No result found for this Question ID');
+      }
+    }
+
+    function next() {
+      const currentId = parseInt(document.getElementById('questionId').value || 0);
+      const nextResult = benchmarkResults.find(r => r.question_id > currentId);
+      if (nextResult) {
+        document.getElementById('questionId').value = nextResult.question_id;
+        displayResult(nextResult);
+      } else {
+        alert('No more results');
+      }
+    }
+
+    function prev() {
+      const currentId = parseInt(document.getElementById('questionId').value || 999999);
+      const prevResult = benchmarkResults.reverse().find(r => r.question_id < currentId);
+      benchmarkResults.reverse(); // Reverse back to original order
+      if (prevResult) {
+        document.getElementById('questionId').value = prevResult.question_id;
+        displayResult(prevResult);
+      } else {
+        alert('No previous results');
+      }
+    }
+
+    function nextMismatch() {
+      const currentId = parseInt(document.getElementById('questionId').value || 0);
+      const nextResult = benchmarkResults.find(r => r.question_id > currentId && r.ex_match === false);
+      if (nextResult) {
+        document.getElementById('questionId').value = nextResult.question_id;
+        displayResult(nextResult);
+      } else {
+        alert('No more mismatches');
+      }
+    }
+
+    function prevMismatch() {
+      const currentId = parseInt(document.getElementById('questionId').value || 999999);
+      const prevResult = benchmarkResults.reverse().find(r => r.question_id < currentId && r.ex_match === false);
+      benchmarkResults.reverse(); // Reverse back to original order
+      if (prevResult) {
+        document.getElementById('questionId').value = prevResult.question_id;
+        displayResult(prevResult);
+      } else {
+        alert('No previous mismatches');
+      }
+    }
+
+    function displayResult(result) {
+      document.getElementById('result').style.display = 'block';
+      document.getElementById('dbId').textContent = result.db_id;
+      document.getElementById('question').textContent = result.question;
+      document.getElementById('evidence').textContent = result.evidence || 'N/A';
+      document.getElementById('trueSQL').value = result.SQL ? sqlFormatter.format(result.SQL) : 'N/A';
+      document.getElementById('predictedSQL').value = sqlFormatter.format(result.predicted_sql);
+
+      document.getElementById('trueResult').innerHTML = createTable(result.golden_result);
+      document.getElementById('predictedResult').innerHTML = createTable(result.predicted_result);
+
+      document.getElementById('isMatch').textContent = result.ex_match ? 'Yes' : 'No';
+
+      function formatMessageLog(messageLog) {
+        let formattedLog = '';
+        messageLog.forEach((message, index) => {
+          formattedLog += `<h3>Message ${index + 1}</h3>`;
+          formattedLog += `<p><strong>Role:</strong> ${message.role}</p>`;
+          if (message.role === 'system') {
+            formattedLog += '<details><summary>System Message</summary>';
+          }
+          formattedLog += `<pre>${message.content}</pre>`;
+          if (message.role === 'system') {
+            formattedLog += '</details>';
+          }
+
+          if (message.tool_calls) {
+            message.tool_calls.forEach((toolCall, toolIndex) => {
+              formattedLog += `<h4>Tool Call ${toolIndex + 1}</h4>`;
+              try {
+                const args = JSON.parse(toolCall.function.arguments);
+                formattedLog += `<pre>${JSON.stringify(args, null, 2)}</pre>`;
+              } catch (e) {
+                formattedLog += `<pre>Error parsing arguments: ${toolCall.function.arguments}</pre>`;
+              }
+            });
+          }
+        });
+        return formattedLog;
+      }
+
+      // Replace the existing line with this:
+      document.getElementById('messageLog').innerHTML = formatMessageLog(result.message_log);
+
+    }
+
+    function createTable(tsvString) {
+      if (!tsvString) {
+        return 'N/A';
+      }
+      const rows = tsvString.trim().split('\n');
+      const headers = rows[0].split('\t');
+      let tableHtml = '<table>';
+      for (let i = 0; i < rows.length; i++) {
+        const cells = rows[i].split('\t');
+        tableHtml += '<tr>';
+        cells.forEach(cell => {
+          tableHtml += `<td>${cell}</td>`;
+        });
+        tableHtml += '</tr>';
+      }
+      tableHtml += '</table>';
+      return tableHtml;
+    }
+  </script>
+</body>
+
+</html>
