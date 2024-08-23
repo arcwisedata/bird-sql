@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -20,12 +21,17 @@ from .execute_sql import (
     execute_sql_tool,
 )
 from .prompts import SYSTEM_PROMPT
+from .search_text_column import (
+    SEARCH_TEXT_COLUMN_TOOL,
+    SearchTextColumnArguments,
+    search_text_column_tool,
+)
 from .utils import ChatCompletionMessageParam, EvaluationResult, SQLContext
 from ..utils import stringify
-from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionMessageToolCallParam
+from openai.types.chat import ChatCompletionMessageToolCallParam
 
 
-MAX_ITERATIONS = 10
+MAX_ITERATIONS = 15
 LITELLM_RETRIES = 10
 LITELLM_TIMEOUT = 120.0
 SAMPLE_VALUE_BUDGET = 200
@@ -54,13 +60,14 @@ async def agent_loop(
     logger = logging.getLogger(logger_name)
     logger.info(f"Running agent: {user_prompt}")
 
+    terminal_messages = 0
     sql_by_exec_result_id: dict[str, str] = {}
     for _ in range(MAX_ITERATIONS):
         response: ChatCompletion = await _get_router().acompletion(
             model=sql_context.model,
             # WARNING: LiteLLM mutates the message log for Claude (to extract the system prompt)
             messages=list(message_log),  # type: ignore
-            tools=[EXECUTE_SQL_TOOL],
+            tools=[EXECUTE_SQL_TOOL, SEARCH_TEXT_COLUMN_TOOL],
             drop_params=True,
             seed=42,
             temperature=0.0,
@@ -84,57 +91,61 @@ async def agent_loop(
 
         message_log.append(raw_message)
         if not tool_calls:
-            last_tool_call_json = next(
-                (
-                    tc
-                    for message in message_log[-1:0:-1]
-                    if (tcs := message.get("tool_calls"))
-                    for tc in tcs
-                ),
-                None,
-            )
-            final_answer_tool_call_user_message: ChatCompletionMessageParam = {
-                "role": "user",
-                "content": "Please provide the requested final_answer as the last tool call.",
-            }
-            if last_tool_call_json is None:
-                message_log.append(final_answer_tool_call_user_message)
+            if _has_final_answer(message_log):
+                break
+            elif terminal_messages >= 1:
+                # Already tried once
+                return message_log, ExecuteSQLToolResult(error="No final answer provided")
             else:
-                last_tool_call = ChatCompletionMessageToolCall.model_validate(last_tool_call_json)
-                last_execute_sql_tool_call = ExecuteSQLToolArguments.model_validate_json(
-                    last_tool_call.function.arguments
+                message_log.append(
+                    {
+                        "role": "user",
+                        "content": "Please provide the requested final_answer as the last tool call.",
+                    }
                 )
-                if last_execute_sql_tool_call.query_identifier.startswith("final_answer"):
-                    # Agent is finished and the last tool call does indeed have a "final answer"
-                    break
-                else:
-                    message_log.append(final_answer_tool_call_user_message)
+                terminal_messages += 1
 
         for tool_call in tool_calls:
             try:
-                arguments = ExecuteSQLToolArguments.model_validate_json(
-                    tool_call["function"]["arguments"]
-                )
-                logger.info(f"Executing SQL: {arguments.query_description}\n{arguments.sql}")
-                gpt_result, tool_result = await execute_sql_tool(
-                    arguments,
-                    sql_by_exec_result_id,
-                    sql_context,
-                    question,
-                    (
-                        question.schema_predictions.output_types
-                        if question.schema_predictions
-                        else None
-                    ),
-                )
-                logger.info(f"SQL result {gpt_result}")
-                if tool_result.exec_result_id and tool_result.sql:
-                    sql_by_exec_result_id[tool_result.exec_result_id] = tool_result.sql
-                    final_sql_result = tool_result
+                match tool_call["function"]["name"]:
+                    case "execute_sql":
+                        arguments = ExecuteSQLToolArguments.model_validate_json(
+                            tool_call["function"]["arguments"]
+                        )
+                        logger.info(
+                            f"Executing SQL: {arguments.query_description}\n{arguments.sql}"
+                        )
+                        gpt_result, tool_result = await execute_sql_tool(
+                            arguments,
+                            sql_by_exec_result_id,
+                            sql_context,
+                            question,
+                            (
+                                question.schema_predictions.output_types
+                                if question.schema_predictions
+                                else None
+                            ),
+                        )
+                        logger.info(f"SQL result {gpt_result}")
+                        if tool_result.exec_result_id and tool_result.sql:
+                            sql_by_exec_result_id[tool_result.exec_result_id] = tool_result.sql
+                        final_sql_result = tool_result
+                    case "search_text_column":
+                        search_args = SearchTextColumnArguments.model_validate_json(
+                            tool_call["function"]["arguments"]
+                        )
+                        logger.info(
+                            f"search_text_column: '{search_args.search_value}' in {search_args.table}.{search_args.column}"
+                        )
+                        gpt_result = await asyncio.to_thread(
+                            lambda: search_text_column_tool(search_args, sql_context)
+                        )
+                        logger.info("search_text_column result: " + gpt_result)
+                    case _:
+                        raise Exception("Unrecognized tool name: " + tool_call["function"]["name"])
             except Exception as e:
                 gpt_result = f"Error executing query: {e}"
                 logger.warning(gpt_result)
-                tool_result = ExecuteSQLToolResult(error=gpt_result)
 
             message_log.append(
                 {"role": "tool", "tool_call_id": tool_call["id"], "content": gpt_result}
@@ -233,18 +244,16 @@ async def evaluate_question(
 
         if final_sql_result.rows is None or not final_sql_result.sql:
             predicted_result = final_sql_result.error or "Unknown error"
-            ex_match = False
-            final_sql = ""
+            ex_match = golden_result == []  # Sometimes the golden SQL also results in an empty set
         else:
             predicted_result = final_sql_result.rows
             ex_match = set(map(_match_row, predicted_result)) == set(map(_match_row, golden_result))
-            final_sql = final_sql_result.sql
 
         return (
             index,
             question,
             EvaluationResult(
-                predicted_sql=final_sql,
+                predicted_sql=final_sql_result.sql or "",
                 predicted_result=predicted_result,
                 message_log=message_log,
                 ex_match=ex_match,
@@ -263,6 +272,27 @@ async def evaluate_question(
             or "Could not generate SQL",
         ),
     )
+
+
+def _has_final_answer(message_log: list[ChatCompletionMessageParam]) -> bool:
+    for message in message_log[-1:0:-1]:
+        if not (tcs := message.get("tool_calls")):
+            continue
+
+        for tc in tcs:
+            try:
+                if tc["function"]["name"] != "execute_sql":
+                    continue
+                args = ExecuteSQLToolArguments.model_validate_json(tc["function"]["arguments"])
+                if args.query_identifier.startswith("final_answer"):
+                    return True
+            except Exception:
+                pass
+
+        # Only check the last set of tool calls
+        break
+
+    return False
 
 
 def _match_row(row: list[SQLScalar]) -> tuple[SQLScalar, ...]:

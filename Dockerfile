@@ -15,6 +15,7 @@ RUN POETRY_VIRTUALENVS_CREATE=false POETRY_NO_INTERACTION=1 poetry install
 COPY sqlite3 /usr/bin/sqlite3
 RUN chmod a+x /usr/bin/sqlite3
 RUN sqlite3 --version
+RUN python -c "import duckdb; duckdb.execute('INSTALL sqlite')"
 
 # Start the main server
 COPY arcwise/ /app/arcwise/
