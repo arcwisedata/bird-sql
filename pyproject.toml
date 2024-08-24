@@ -21,18 +21,7 @@ aioboto3 = "^12.3.0"
 func-timeout = "^4.3.5"
 transformers = "^4.42.4"
 tenacity = "^8.5.0"
-
-[tool.poetry.group.retrieval]
-optional = true
-
-[tool.poetry.group.retrieval.dependencies]
-llama-index-core = "^0.10.55"
-llama-index-embeddings-bedrock = "^0.2.1"
-llama-index-embeddings-gemini = "^0.1.8"
-llama-index-embeddings-openai = "^0.1.10"
-llama-index-embeddings-voyageai = "^0.1.4"
-llama-index-vector-stores-duckdb = "^0.1.5"
-
+duckdb = "^1.0.0"
 
 [tool.ruff]
 line-length = 100
