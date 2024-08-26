@@ -20,6 +20,7 @@ app_image = (
     .poetry_install_from_file("pyproject.toml")
     .workdir("/app")
     .copy_local_file("sqlite3", "/usr/bin/sqlite3")
+    .run_commands("python -c \"import duckdb; duckdb.execute('INSTALL sqlite')\"")
     .copy_local_dir("arcwise", "arcwise")
     .copy_local_file("run.sh")
     .env(dict(HUGGINGFACE_HUB_CACHE="/pretrained", HF_HUB_ENABLE_HF_TRANSFER="1"))
@@ -35,7 +36,7 @@ bird_volume = modal.Volume.from_name("bird-data")
 @app.function(
     image=app_image,
     timeout=86400,
-    gpu="h100:1",
+    gpu="a100-80gb:1",
     volumes={
         "/bird": bird_volume,
         "/runs": modal.Volume.from_name("runs-vol"),

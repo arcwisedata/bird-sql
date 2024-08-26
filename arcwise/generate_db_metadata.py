@@ -6,7 +6,7 @@ import os
 import pathlib
 import sqlite3
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import aclosing
 from functools import partial
 from typing import Any
@@ -117,7 +117,7 @@ def get_cleaned_metadata(db_path: str) -> list[Database]:
     tables = index_db_tables(db_path)
     print(f"Found {len(tables)} tables.")
 
-    with ThreadPoolExecutor() as executor:
+    with ProcessPoolExecutor() as executor:
         futures = [executor.submit(get_column_stats, db_path, table) for table in tables]
         table_column_stats = [f.result() for f in tqdm(futures, desc="Getting column stats")]
 
