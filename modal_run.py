@@ -16,11 +16,18 @@ app_image = (
             "ENTRYPOINT []",  # Reset entrypoint for Modal to work
         ],
     )
-    .apt_install("bash", "curl", "make", "git", "gcc", "g++", "sqlite3")
+    .apt_install("bash", "curl", "make", "git", "gcc", "g++", "sqlite3", "unzip")
     .poetry_install_from_file("pyproject.toml")
     .workdir("/app")
     .copy_local_file("sqlite3", "/usr/bin/sqlite3")
-    .run_commands("python -c \"import duckdb; duckdb.execute('INSTALL sqlite')\"")
+    .run_commands(
+        [
+            "curl https://github.com/duckdb/duckdb/releases/download/v1.0.0/duckdb_cli-linux-amd64.zip -L -o duckdb_cli-linux-amd64.zip",
+            "unzip duckdb_cli-linux-amd64.zip",
+            "mv duckdb /usr/bin/duckdb",
+            "chmod +x /usr/bin/duckdb",
+        ]
+    )
     .copy_local_dir("arcwise", "arcwise")
     .copy_local_file("run.sh")
     .env(dict(HUGGINGFACE_HUB_CACHE="/pretrained", HF_HUB_ENABLE_HF_TRANSFER="1"))

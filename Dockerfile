@@ -1,7 +1,7 @@
 FROM vllm/vllm-openai:v0.5.4 AS base
 
 RUN apt update && \
-  apt -y install --no-install-recommends --no-install-suggests bash curl make git gcc g++ sqlite3 && \
+  apt -y install --no-install-recommends --no-install-suggests bash curl make git gcc g++ sqlite3 unzip && \
   apt clean && \
   rm -rf /var/cache/apt/lists
 
