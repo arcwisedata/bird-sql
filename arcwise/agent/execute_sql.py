@@ -2,6 +2,7 @@ import asyncio
 import csv
 import re
 from io import StringIO
+from typing import Literal
 
 import sqlglot
 import sqlglot.expressions as exp
@@ -14,15 +15,51 @@ from ..utils import stringify
 SQLScalar = str | int | float | bool | None
 
 
+class Join(BaseModel):
+    source: str = Field(description="The table or previous exec_result_id to join")
+    description: str = Field(description="Explain why this join is needed")
+    alias: str | None = Field(default=None, description="Optional alias for the join table")
+    on: str = Field(description="Join condition SQL")
+    missing_behavior: str = Field(
+        description="Should rows from the source be included if no matching join is found? Provide a brief explanation"
+    )
+    join_type: Literal["inner", "left"] = Field(
+        description="Use a left join if rows without joins should be included"
+    )
+
+
+class Column(BaseModel):
+    description: str = Field(description="A brief explanation of the purpose of this column")
+    alias: str = Field(description="A short lower_camel_case identifier for this column")
+    deduplication_behavior: str = Field(
+        description="Does this column reference joined tables? Is there a risk of duplicates affecting the result? Specify whether or not deduplication is required",
+    )
+    sql: str = Field(
+        description="The SQL expression for this column. References should be fully qualified and escaped if needed"
+    )
+
+
 class ExecuteSQLToolArguments(BaseModel):
     query_description: str = Field(description="An explanation of the purpose of this query")
     query_identifier: str = Field(
-        description="A short SQL identifier name that describes the query"
+        description="A short lower_camel_case identifier for the query result"
     )
-    table_identifiers: list[str] = Field(
-        description="A list of tables or prior exec_result_ids to use in the query"
+    from_: str = Field(description="A table or previous exec_result_id to use as the source table")
+    joins: list[Join] = Field(default=[], description="JOIN clauses")
+    where: str | None = Field(default=None, description="WHERE clause")
+    columns: list[Column] = Field(description="One or more columns to SELECT")
+    having: str | None = Field(default=None, description="HAVING clause")
+    group_by: list[str] = Field(
+        default=[],
+        description="GROUP BY clauses. Prefer to reference columns by number if possible.",
     )
-    sql: str
+    order_by: list[str] = Field(
+        default=[],
+        description="ORDER BY clauses. Prefer to reference columns by number if possible.",
+    )
+    limit: str | None = Field(
+        default=None, description="LIMIT clause, with offset if needed as well"
+    )
 
 
 class ExecuteSQLToolResult(BaseModel):
@@ -60,10 +97,36 @@ async def execute_sql_tool(
         # Do not shadow table names in the DB
         + [t.name for t in sql_context.db_metadata[question.db_id].tables],
     )
-    sql = arguments.sql.strip().rstrip(";")
+
+    sql = "SELECT\n  "
+    sql += ", ".join(f"{col.sql} AS {col.alias}" for col in arguments.columns)
+    sql += f"\nFROM {arguments.from_}"
+
+    for join in arguments.joins:
+        join_type = "LEFT JOIN" if join.join_type == "left" else "INNER JOIN"
+        sql += f"\n{join_type} {join.source}"
+        if join.alias:
+            sql += f" AS {join.alias}"
+        sql += f" ON {join.on}"
+
+    if arguments.where:
+        sql += f"\nWHERE {arguments.where}"
+
+    if arguments.group_by:
+        sql += f"\nGROUP BY {', '.join(arguments.group_by)}"
+
+    if arguments.having:
+        sql += f"\nHAVING {arguments.having}"
+
+    if arguments.order_by:
+        sql += f"\nORDER BY {', '.join(arguments.order_by)}"
+
+    if arguments.limit:
+        sql += f"\nLIMIT {arguments.limit}"
+
     sg_query = sqlglot.parse_one(sql, dialect=sql_context.dialect).transform(_lint_sql)
     assert isinstance(sg_query, exp.Query), "Only SELECT statements are supported"
-    for table in arguments.table_identifiers:
+    for table in [arguments.from_] + [j.source for j in arguments.joins]:
         if previous_sql := previous_sql_queries.get(table):
             if sg_query.ctes:
                 # Needs to be prepended, as existing CTEs may reference `cte_name`

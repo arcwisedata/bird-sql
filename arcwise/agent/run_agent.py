@@ -108,11 +108,9 @@ async def agent_loop(
             try:
                 match tool_call["function"]["name"]:
                     case "execute_sql":
+                        logger.info(f"Executing SQL: {tool_call['function']['arguments']}")
                         arguments = ExecuteSQLToolArguments.model_validate_json(
                             tool_call["function"]["arguments"]
-                        )
-                        logger.info(
-                            f"Executing SQL: {arguments.query_description}\n{arguments.sql}"
                         )
                         gpt_result, tool_result = await execute_sql_tool(
                             arguments,
@@ -125,7 +123,8 @@ async def agent_loop(
                                 else None
                             ),
                         )
-                        logger.info(f"SQL result {gpt_result}")
+                        logger.info(f"Generated SQL: {tool_result.sql}")
+                        logger.info(f"SQL result: {gpt_result}")
                         if tool_result.exec_result_id and tool_result.sql:
                             sql_by_exec_result_id[tool_result.exec_result_id] = tool_result.sql
                             final_sql_result = tool_result
