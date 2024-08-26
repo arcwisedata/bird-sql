@@ -1,6 +1,8 @@
+import asyncio
 import csv
 from dataclasses import dataclass
 from io import StringIO
+import json
 from typing import Any
 
 from litellm.types.completion import ChatCompletionMessageParam
@@ -42,3 +44,25 @@ def to_tsv(data: list[list[Any]]) -> str:
         writer = csv.writer(f, delimiter="\t", lineterminator="\n")
         writer.writerows(data)
         return f.getvalue().strip("\n")
+
+
+async def execute_process_json(args: list[str]) -> Any | None:
+    process = None
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            raise RuntimeError(f"{args[0]} error: {stderr.decode()}")
+        output = stdout.decode().strip()
+        if not output:
+            return None
+        return json.loads(stdout.decode())
+    except asyncio.CancelledError:
+        if process:
+            process.terminate()
+        raise Exception(f"{args[0]} timed out")

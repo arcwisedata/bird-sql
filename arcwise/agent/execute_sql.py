@@ -1,6 +1,5 @@
 import asyncio
 import csv
-import json
 import re
 from io import StringIO
 
@@ -8,7 +7,7 @@ import sqlglot
 import sqlglot.expressions as exp
 from pydantic import BaseModel, Field
 
-from .utils import SQLContext
+from .utils import SQLContext, execute_process_json
 from ..typedefs import BIRDQuestion, SchemaPredictions
 from ..utils import stringify
 
@@ -157,31 +156,12 @@ async def execute_sql(
 
 
 async def _execute_sqlite(sql: str, sql_context: SQLContext) -> list[list[SQLScalar]]:
-    process = None
-    try:
-        process = await asyncio.create_subprocess_exec(
-            "sqlite3",
-            "-json",
-            sql_context.db_url,
-            sql,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        if process.returncode != 0:
-            raise RuntimeError(f"SQLite error: {stderr.decode()}")
-        output = stdout.decode().strip()
-        if not output:
-            return []
-        response_json = json.loads(stdout.decode())
-        if not response_json:
-            return []
-        return [list(response_json[0].keys())] + [list(row.values()) for row in response_json]
-    except asyncio.CancelledError:
-        if process:
-            process.terminate()
-        raise Exception("Query execution timed out")
+    response_json = await execute_process_json(
+        ["sqlite3", "-json", "-readonly", sql_context.db_url, sql]
+    )
+    if not response_json:
+        return []
+    return [list(response_json[0].keys())] + [list(row.values()) for row in response_json]
 
 
 def _lint_sql(node: exp.Expression) -> exp.Expression:

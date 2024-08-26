@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import os
@@ -137,9 +136,7 @@ async def agent_loop(
                         logger.info(
                             f"search_text_column: '{search_args.search_value}' in {search_args.table}.{search_args.column}"
                         )
-                        gpt_result = await asyncio.to_thread(
-                            lambda: search_text_column_tool(search_args, sql_context)
-                        )
+                        gpt_result = await search_text_column_tool(search_args, sql_context)
                         logger.info("search_text_column result: " + gpt_result)
                     case _:
                         raise Exception("Unrecognized tool name: " + tool_call["function"]["name"])

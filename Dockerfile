@@ -15,7 +15,14 @@ RUN POETRY_VIRTUALENVS_CREATE=false POETRY_NO_INTERACTION=1 poetry install
 COPY sqlite3 /usr/bin/sqlite3
 RUN chmod a+x /usr/bin/sqlite3
 RUN sqlite3 --version
-RUN python -c "import duckdb; duckdb.execute('INSTALL sqlite')"
+
+# Install duckdb
+RUN curl https://github.com/duckdb/duckdb/releases/download/v1.0.0/duckdb_cli-linux-amd64.zip -L -o duckdb_cli-linux-amd64.zip && \
+  unzip duckdb_cli-linux-amd64.zip && \
+  rm duckdb_cli-linux-amd64.zip && \
+  mv duckdb /usr/bin/duckdb && \
+  chmod a+x /usr/bin/duckdb && \
+  duckdb --version
 
 # Start the main server
 COPY arcwise/ /app/arcwise/
