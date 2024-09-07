@@ -1,13 +1,12 @@
 import asyncio
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .utils import SQLContext, execute_process_json
 from ..utils import stringify
 
 
 class SearchTextColumnArguments(BaseModel):
-    table: str
-    column: str
+    column: str = Field(description="Column name in table.column format. Do not add quoting")
     search_value: str
 
 
@@ -21,7 +20,10 @@ SEARCH_TEXT_COLUMN_TOOL = {
 }
 
 
-async def search_text_column_tool(args: SearchTextColumnArguments, context: SQLContext) -> str:
+async def search_text_column_tool(
+    args: SearchTextColumnArguments, context: SQLContext
+) -> dict[str, float]:
+    table, column = args.column.split(".", 1)
     search_value = args.search_value.replace("'", "''")
     try:
         response_json = await asyncio.wait_for(
@@ -32,7 +34,7 @@ async def search_text_column_tool(args: SearchTextColumnArguments, context: SQLC
                     "-readonly",
                     "-c",
                     f"SELECT value, jaro_winkler_similarity(value, '{search_value}') AS similarity "
-                    f'FROM (SELECT DISTINCT CAST("{args.column}" AS STRING) AS value FROM "{args.table}") '
+                    f'FROM (SELECT DISTINCT CAST("{column}" AS STRING) AS value FROM "{table}") '
                     "ORDER BY 2 DESC LIMIT 5",
                     context.db_url,
                 ]
@@ -50,7 +52,7 @@ async def search_text_column_tool(args: SearchTextColumnArguments, context: SQLC
                     "-readonly",
                     context.db_url,
                     f"SELECT value, 1.0 * {length} / length(value) AS similarity "
-                    f'FROM (SELECT DISTINCT CAST("{args.column}" AS TEXT) AS value FROM "{args.table}") '
+                    f'FROM (SELECT DISTINCT CAST("{column}" AS TEXT) AS value FROM "{table}") '
                     f"WHERE LOWER(value) LIKE '%{search_value}%' LIMIT 10",
                 ]
             ),
@@ -58,9 +60,9 @@ async def search_text_column_tool(args: SearchTextColumnArguments, context: SQLC
         )
 
     if not response_json:
-        return "No similar values found"
+        return {}
 
-    return "Closest values:\nvalue\tsimilarity\n" + "\n".join(
-        f"{stringify(row['value'], quote_strings=False)}\t{row['similarity']:.4g}"
+    return {
+        stringify(row["value"], quote_strings=False): row["similarity"] or 0.0
         for row in response_json
-    )
+    }

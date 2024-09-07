@@ -77,7 +77,7 @@ async def main(
         except FileNotFoundError:
             print("--resume specified but no report file found")
             return
-        existing_questions = {r["question_id"] for r in results}
+        existing_questions = {r["db_id"] + r["question"] for r in results}
 
     tasks = [
         asyncio.create_task(
@@ -95,7 +95,7 @@ async def main(
             )
         )
         for index, q in shuffled
-        if q.question_id not in existing_questions
+        if q.db_id + q.question not in existing_questions
     ]
     total = len(results)
     ex_correct = len([r for r in results if r["ex_match"]])

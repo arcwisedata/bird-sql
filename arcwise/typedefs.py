@@ -99,3 +99,9 @@ class BIRDQuestion(BaseModel):
         if self.evidence:
             res += f"\nContext: {self.evidence.strip()}"
         return res
+
+    def question_hint(self) -> str:
+        res = self.question.strip()
+        if self.evidence:
+            res += f"\nHint: {self.evidence.strip()}"
+        return res

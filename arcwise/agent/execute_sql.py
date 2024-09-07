@@ -1,6 +1,5 @@
 import asyncio
 import csv
-import re
 from io import StringIO
 
 import sqlglot
@@ -15,12 +14,8 @@ SQLScalar = str | int | float | bool | None
 
 
 class ExecuteSQLToolArguments(BaseModel):
-    query_description: str = Field(description="An explanation of the purpose of this query")
-    query_identifier: str = Field(
-        description="A short SQL identifier name that describes the query"
-    )
-    table_identifiers: list[str] = Field(
-        description="A list of tables or prior exec_result_ids to use in the query"
+    step_by_step_description: str = Field(
+        description="A step-by-step description of what this query does. Provide detailed reasoning for each step."
     )
     sql: str
 
@@ -29,7 +24,6 @@ class ExecuteSQLToolResult(BaseModel):
     error: str | None = None
     columns: list[str] | None = None
     rows: list[list[SQLScalar]] | None = None
-    exec_result_id: str | None = None
     sql: str | None = None
 
 
@@ -41,7 +35,7 @@ EXECUTE_SQL_TOOL = {
     "type": "function",
     "function": {
         "name": "execute_sql",
-        "description": "Executes a SQL query",
+        "description": "Executes a SQL query on the database",
         "parameters": ExecuteSQLToolArguments.model_json_schema(),
     },
 }
@@ -49,64 +43,26 @@ EXECUTE_SQL_TOOL = {
 
 async def execute_sql_tool(
     arguments: ExecuteSQLToolArguments,
-    previous_sql_queries: dict[str, str],
     sql_context: SQLContext,
     question: BIRDQuestion,
-    predicted_output_types: list[SchemaPredictions.OutputType] | None,
 ) -> tuple[str, ExecuteSQLToolResult]:
-    exec_result_id = _get_unique_str(
-        re.sub("[^A-Za-z0-9_]", "_", arguments.query_identifier).lower(),
-        list(previous_sql_queries.keys())
-        # Do not shadow table names in the DB
-        + [t.name for t in sql_context.db_metadata[question.db_id].tables],
-    )
     sql = arguments.sql.strip().rstrip(";")
     sg_query = sqlglot.parse_one(sql, dialect=sql_context.dialect).transform(_lint_sql)
     assert isinstance(sg_query, exp.Query), "Only SELECT statements are supported"
-    for table in arguments.table_identifiers:
-        if previous_sql := previous_sql_queries.get(table):
-            if sg_query.ctes:
-                # Needs to be prepended, as existing CTEs may reference `cte_name`
-                new_cte = exp.CTE(
-                    alias=table,
-                    this=sqlglot.parse_one(previous_sql, dialect=sql_context.dialect),
-                )
-                sg_query.ctes.insert(0, new_cte)
-            else:
-                sg_query = sg_query.with_(
-                    alias=table, as_=previous_sql, dialect=sql_context.dialect
-                )
 
     sql = sg_query.sql(dialect=sql_context.dialect)
-    if arguments.query_identifier.startswith("final_answer"):
-        # Do some sanity checks before executing the final query
-        _check_rounding(question, sql)
-        _check_mixed_division(sg_query)
+
+    # Do some sanity checks before executing the final query
+    _check_rounding(question, sql)
+    # _check_mixed_division(sg_query)
 
     try:
         columns, rows = await execute_sql(sql, sql_context)
-
-        # Ensure that the output types match the expected types
-        if arguments.query_identifier.startswith("final_answer") and predicted_output_types:
-            _check_output_types(columns, rows, predicted_output_types)
-        tool_result = ExecuteSQLToolResult(
-            exec_result_id=exec_result_id,
-            rows=rows,
-            columns=columns,
-            sql=sql,
-        )
-        gpt_result = _get_gpt_result(
-            rows=rows,
-            columns=columns,
-            exec_result_id=exec_result_id,
-        )
+        tool_result = ExecuteSQLToolResult(rows=rows, columns=columns, sql=sql)
+        gpt_result = _get_gpt_result(rows=rows, columns=columns)
     except Exception as exc:
         error_message = str(exc)
-        tool_result = ExecuteSQLToolResult(
-            sql=sql,
-            exec_result_id=exec_result_id,
-            error=error_message,
-        )
+        tool_result = ExecuteSQLToolResult(sql=sql, error=error_message)
         gpt_result = "Error executing query: " + error_message
     return gpt_result, tool_result
 
@@ -117,7 +73,6 @@ EXECUTE_SQL_ROWS_BYTE_LIMIT = 512
 def _get_gpt_result(
     rows: list[list[SQLScalar]],
     columns: list[str],
-    exec_result_id: str,
 ) -> str:
     tsv_preview = StringIO()
     writer = csv.writer(tsv_preview, delimiter="\t", lineterminator="\n")
@@ -128,8 +83,7 @@ def _get_gpt_result(
             break
         writer.writerow([stringify(cell, quote_strings=False) for cell in row])
 
-    return f"""exec_result_id: {exec_result_id}
-row_count: {len(rows)}
+    return f"""row_count: {len(rows)}
 ```tsv
 {tsv_preview.getvalue()}"""
 
@@ -224,16 +178,16 @@ Please rework the query and try again."""
             )
 
 
-def _check_output_types(
+def check_output_types(
     columns: list[str],
     rows: list[list[SQLScalar]],
     predicted_output_types: list[SchemaPredictions.OutputType],
-):
+) -> str | None:
     if len(rows) == 0:
-        return
+        return None
 
     if len(columns) != len(predicted_output_types):
-        raise RuntimeError(f"Expected {len(predicted_output_types)} columns, got {len(columns)}")
+        return f"Expected {len(predicted_output_types)} columns, got {len(columns)}"
 
     # check whether the types match in the first row
     for val, pred in zip(rows[0], predicted_output_types):
@@ -247,8 +201,8 @@ def _check_output_types(
         elif pred.type == "real" and isinstance(val, float):
             continue
         else:
-            raise RuntimeError(
-                f"Expected output column type(s): {', '.join(output_type.type for output_type in predicted_output_types)}"
+            return "Expected output column type(s): " + ", ".join(
+                output_type.type for output_type in predicted_output_types
             )
 
 
