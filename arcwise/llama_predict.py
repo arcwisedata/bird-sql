@@ -1,6 +1,7 @@
 from collections import defaultdict
 import json
 import random
+from typing import Callable
 
 import click
 import numpy as np
@@ -12,7 +13,8 @@ from .embedding import batch_embed
 from .prompts import COLUMN_PREDICTION_TYPES, COLUMN_PREDICTION_PROMPT
 from .typedefs import BIRDQuestion, Database, SchemaPredictions
 from .utils import coro, load_database_metadata, load_questions
-from vllm import LLM, RequestOutput, SamplingParams
+import torch  # type: ignore
+from vllm import LLM, RequestOutput, SamplingParams  # type: ignore
 
 NUM_VOTES = 7
 MIN_VOTES = 1
@@ -26,6 +28,7 @@ OUTPUT_TOKENS = 1500
 @click.option("--model", help="Model identifier", required=True)
 @click.option("--max-model-len", help="Model context length", default=20_000)
 @click.option("--embedding-model", help="Model identifier", required=True)
+@click.option("--temperature", help="Sampling temperature", default=0.7)
 @coro
 async def main(
     questions_file: str,
@@ -34,19 +37,20 @@ async def main(
     model: str,
     max_model_len: int,
     embedding_model: str,
+    temperature: float,
 ) -> None:
     questions = load_questions(questions_file)
     metadata = load_database_metadata(metadata_file)
     llm = LLM(
         model=model,
         enable_prefix_caching=True,
-        gpu_memory_utilization=0.95,
-        max_num_batched_tokens=max_model_len,
+        gpu_memory_utilization=0.98,
         max_model_len=max_model_len,
         trust_remote_code=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(model)
     context_token_limit = max_model_len - OUTPUT_TOKENS
+    dynamic_sampler = _make_dynamic_sampler(tokenizer)
     for db_name, db in metadata.items():
         db_questions = [q for q in questions if q.db_id == db_name]
         if not db_questions:
@@ -89,10 +93,10 @@ async def main(
         outputs = llm.generate(
             prompt_token_ids=prompt_token_ids,
             sampling_params=SamplingParams(
-                temperature=0.7,
-                top_p=0.9,
+                temperature=temperature,
                 max_tokens=OUTPUT_TOKENS,
                 n=NUM_VOTES,
+                logits_processors=[dynamic_sampler],
             ),
         )
         for question, output in zip(db_questions, outputs):
@@ -144,6 +148,30 @@ def _create_prompt(
     ]
 
 
+def _make_dynamic_sampler(
+    tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+) -> Callable[[list[int], torch.Tensor], torch.Tensor]:
+    newline_id = tokenizer.encode("\n")[-1]
+    comment_id = tokenizer.encode("\n--")[-1]
+
+    def _fn(input_ids: list[int], logits: torch.Tensor) -> torch.Tensor:
+        line_first_token_id = -1
+        for token_id in input_ids[::-1]:
+            if token_id == newline_id:
+                break
+            line_first_token_id = token_id
+
+        # Enable temperature-based sampling for comment lines
+        if line_first_token_id == comment_id:
+            return logits
+
+        # For other lines, force greedy sampling
+        logits[logits < torch.max(logits)] = -torch.inf
+        return logits
+
+    return _fn
+
+
 def _process_prediction(
     question: BIRDQuestion, db: Database, output: RequestOutput
 ) -> SchemaPredictions | None:
@@ -151,14 +179,17 @@ def _process_prediction(
     output_type_votes = defaultdict(list)
     for completion in output.outputs:
         lines = completion.text.splitlines()
-        if "Input Columns" not in lines:
+        sanitized_lines = [x.lower().strip().removesuffix(":") for x in lines]
+        if "input columns" not in sanitized_lines:
             print(f"Warning: malformed prediction for question: {question.question}")
-            return
+            print(completion.text)
+            continue
 
-        if lines[0].strip() == "Output Types":
+        if sanitized_lines[0] == "output types":
             lines = lines[1:]
+            sanitized_lines = sanitized_lines[1:]
 
-        input_columns_line = lines.index("Input Columns")
+        input_columns_line = sanitized_lines.index("input columns")
         output_types = _parse_output_types(lines[:input_columns_line])
         if output_types:
             output_type_votes[tuple(x.type for x in output_types)].append(output_types)

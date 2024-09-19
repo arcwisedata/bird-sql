@@ -1,3 +1,4 @@
+import json
 import click
 from tqdm import tqdm
 
@@ -6,19 +7,24 @@ from arcwise.sql_references import extract_sql_references
 
 
 @click.command()
-@click.option("--predictions-file", help="Path to preditions", required=True)
+@click.option("--predictions-file", help="Path to predictions", required=True)
 @click.option("--metadata-file", help="Path to db metadata", required=True)
 @click.option("--database-path", help="Path to databases", required=True)
+@click.option("--output-file", help="Path to databases", default=None)
+@click.option("--by-dbid", help="Group by db_id", is_flag=True)
 @coro
 async def main(
     predictions_file: str,
     metadata_file: str,
     database_path: str,
+    output_file: str | None,
+    by_dbid: bool,
 ) -> None:
     questions = load_questions(predictions_file)
     metadata = load_database_metadata(metadata_file)
 
     stats = []
+    output = []
     for question in tqdm(questions):
         if (
             not question.SQL
@@ -76,6 +82,15 @@ async def main(
         #     print("-----------")
         table_intersection = len(predicted_table & golden_table)
         column_intersection = len(predicted_column & golden_column)
+        output.append(
+            {
+                **question.model_dump(exclude_none=True),
+                "sql_refs": sql_refs.model_dump(),
+                "schema_table_match": golden_table <= predicted_table,
+                "schema_column_match": golden_column <= predicted_column,
+                "schema_output_match": output_match,
+            }
+        )
 
         # Calculate table precision and recall
         stats.append(
@@ -106,7 +121,11 @@ async def main(
             }
         )
 
-    for db_id in [None, *metadata.keys()]:
+    if output_file:
+        with open(output_file, "w") as f:
+            json.dump(output, f, indent=2)
+
+    for db_id in [None, *metadata.keys()] if by_dbid else [None]:
         filtered_stats = (
             stats if db_id is None else [stat for stat in stats if stat["db_id"] == db_id]
         )

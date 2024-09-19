@@ -79,7 +79,7 @@ def main(
 
 @app.function(
     image=app_image,
-    timeout=3600,
+    timeout=14400,
     gpu="h100:1",
     volumes={
         "/bird": bird_volume,
@@ -95,6 +95,7 @@ def schema_predict(
     model: str,
     max_model_len: int = 9216,
     embedding_model: str = "azure/text-embedding-3-large",
+    temperature: float = 0.7,
 ):
     import arcwise.llama_predict as llama_predict
 
@@ -105,4 +106,5 @@ def schema_predict(
         model=model,
         max_model_len=max_model_len,
         embedding_model=embedding_model,
+        temperature=temperature,
     )
